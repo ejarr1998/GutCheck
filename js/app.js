@@ -209,11 +209,11 @@ function renderChart() {
   const empty = $("#chartEmpty");
   const pts = state.weights.map((w) => ({ x: fmtDayShort(w.loggedAt), y: w.weight }));
   if (pts.length < 2) {
-    svg.hidden = true;
+    svg.setAttribute("hidden", ""); // SVG elements don't reflect the .hidden property
     empty.hidden = false;
     return;
   }
-  svg.hidden = false;
+  svg.removeAttribute("hidden");
   empty.hidden = true;
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
