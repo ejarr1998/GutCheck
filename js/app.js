@@ -825,7 +825,8 @@ async function sendCoachMessage(coachId, text) {
     await addChatMsg(coachId, "user", text);
   } catch (e) {
     state.sending[coachId] = false;
-    toast("Save failed: " + e.message, true);
+    $("#chatInput-" + coachId).value = text; // don't eat the message — let them retry
+    toast("Message didn't send: " + e.message + " — is Firestore created in the Firebase console?", true);
     return;
   }
   renderChat(coachId);
