@@ -151,6 +151,13 @@
       <p class="hint left">Chats are stored in your Firebase project so they sync across devices.</p>
     </div>
 
+    <div class="card">
+      <h2 class="card-title">🎙 Voice (Deepgram) <span class="pill" id="dgPill" hidden>connected</span></h2>
+      <p class="sub left">Gives the coaches ears and voices: tap 🎙 in a chat to talk, tap 🔊 on any reply to hear it. Maya speaks as <b>Thalia</b>, Dre as <b>Arcas</b> (Aura-2). Transcription uses Nova-3. The key lives only in this browser's localStorage (<code>sandbox_key_deepgram</code>).</p>
+      <label class="full">Deepgram API key<input id="s_dgKey" type="password" placeholder="Deepgram key…" autocomplete="off"></label>
+      <button class="btn big" id="saveDgKey">Save voice key</button>
+    </div>
+
     <p class="footer-note">GutCheck · photos, weights, and chats live in your own Firebase project</p>
   </section>
 
