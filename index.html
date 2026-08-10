@@ -7,6 +7,9 @@
 <meta name="description" content="Progress photos, weight tracking, and AI coaches for the 190 → 175 mission.">
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💪</text></svg>">
+<meta name="theme-color" content="#0c0e09">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
@@ -17,9 +20,12 @@
     <span class="brand-mark">💪</span>
     <span class="brand-name">GutCheck</span>
   </button>
-  <div class="baby-chip" id="babyChip" hidden>
-    <span aria-hidden="true">👶</span>
-    <span><b id="babyDays">–</b> days to baby</span>
+  <div class="topbar-right">
+    <button class="fs-btn" id="fsToggle" title="Full screen" aria-label="Toggle full screen">⛶</button>
+    <div class="baby-chip" id="babyChip" hidden>
+      <span aria-hidden="true">👶</span>
+      <span><b id="babyDays">–</b> days to baby</span>
+    </div>
   </div>
 </header>
 
