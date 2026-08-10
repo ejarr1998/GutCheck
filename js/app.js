@@ -1,0 +1,755 @@
+/* ============================================================
+   GutCheck — progress photos, weight log, AI coaches
+   Vanilla JS + Firebase (Firestore) + Claude (browser call)
+   ============================================================ */
+"use strict";
+
+/* ---------- Firebase ---------- */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBrU3858Blfz8om6jzz91JWF1FODcVkMhA",
+  authDomain: "gutcheck-efc9a.firebaseapp.com",
+  projectId: "gutcheck-efc9a",
+  storageBucket: "gutcheck-efc9a.firebasestorage.app",
+  messagingSenderId: "149877550947",
+  appId: "1:149877550947:web:70e746055301b932212d56",
+};
+
+let db = null;
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.firestore();
+} catch (e) {
+  console.error("Firebase init failed:", e);
+}
+
+/* ---------- tiny DOM helpers (XSS-safe: textContent only) ---------- */
+function $(sel, root) { return (root || document).querySelector(sel); }
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+function esc(s) { return String(s == null ? "" : s); }
+
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "toast" + (isErr ? " err" : "");
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+}
+
+/* ---------- constants ---------- */
+const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
+
+const DEFAULT_PROFILE = {
+  height: "6'2\"",
+  age: "28",
+  startWeight: "190",
+  goalWeight: "175",
+  calories: "2100",
+  protein: "160",
+  babyDue: "2026-11-24",
+  context:
+    "Male, 28, 6'2\". Gained ~15-20 lbs (170-175 lifelong, now 190), wants to lose the gut and get back to ~175 by mid-November 2026. " +
+    "Trains at home only (no gym) 3x/week full-body with dumbbells/backpack + daily 8-10k steps. " +
+    "Recurring lower-back issues — avoid aggressive spinal loading, prefer core stability work (planks, dead bugs, bird dogs). " +
+    "Had mono (EBV) in March 2025 and post-COVID immune issues — avoid overtraining, moderate intensity. " +
+    "First baby due Nov 24, 2026 — plan must survive severe sleep deprivation.",
+};
+
+const COACHES = {
+  nutrition: {
+    name: "Coach Maya",
+    short: "Maya",
+    title: "AI Nutritionist",
+    greeting:
+      "Hey! I'm Maya, your nutritionist. Ask me anything — meal ideas, whether a food fits your calories, what to order at a restaurant, or how to hit your protein target today.",
+    suggestions: [
+      "Give me a full day of eating at my targets",
+      "High-protein breakfast ideas that take 5 minutes",
+      "Is olive oil ok for cooking chicken?",
+      "What should I eat before and after a workout?",
+      "How do I handle cravings at night?",
+    ],
+  },
+  gym: {
+    name: "Coach Dre",
+    short: "Dre",
+    title: "AI Gym Coach",
+    greeting:
+      "What's up — I'm Dre, your home-training coach. I know your program, your back history, and your goals. Ask me about form, swapping exercises, or what to do today.",
+    suggestions: [
+      "Walk me through today's workout",
+      "My lower back feels tight — what should I swap?",
+      "How do I make push-ups harder without weights?",
+      "I only have 15 minutes — what's the minimum effective workout?",
+      "How do I progress goblet squats at home?",
+    ],
+  },
+};
+
+const state = {
+  tab: "dashboard",
+  profile: { ...DEFAULT_PROFILE },
+  weights: [], // {id, weight, loggedAt}
+  photos: [],  // {id, imageData, label, note, takenAt}
+  chats: { nutrition: [], gym: [] }, // {id, role, content, at}
+  sending: { nutrition: false, gym: false },
+  compareMode: false,
+  compareSel: [],
+  viewerId: null,
+};
+
+/* ---------- Firestore helpers ---------- */
+async function fsGet(col, orderBy, dir) {
+  const snap = await db.collection(col).orderBy(orderBy, dir || "asc").get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+async function loadProfile() {
+  try {
+    const doc = await db.collection("settings").doc("profile").get();
+    if (doc.exists) state.profile = { ...DEFAULT_PROFILE, ...doc.data() };
+  } catch (e) {
+    console.warn("profile load failed:", e);
+  }
+}
+
+async function saveProfile() {
+  await db.collection("settings").doc("profile").set(state.profile);
+}
+
+async function loadWeights() {
+  state.weights = await fsGet("weights", "loggedAt", "asc");
+}
+
+async function loadPhotos() {
+  state.photos = await fsGet("photos", "takenAt", "desc");
+}
+
+async function loadChat(coach) {
+  state.chats[coach] = await fsGet("chats/" + coach + "/messages", "at", "asc");
+}
+
+async function addChatMsg(coach, role, content) {
+  const msg = { role, content, at: new Date().toISOString() };
+  const ref = await db.collection("chats").doc(coach).collection("messages").add(msg);
+  state.chats[coach].push({ id: ref.id, ...msg });
+}
+
+/* ---------- formatting ---------- */
+function fmtDay(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+}
+function fmtDayShort(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function fmtDateTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+    " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+function dayKey(iso) {
+  const d = new Date(iso);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+/* ---------- tabs ---------- */
+const TABS = ["dashboard", "photos", "nutrition", "gym", "settings"];
+function go(tab) {
+  state.tab = tab;
+  TABS.forEach((t) => { $("#panel-" + t).hidden = t !== tab; });
+  document.querySelectorAll(".tab-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.go === tab);
+  });
+  if (tab === "nutrition" || tab === "gym") scrollChatBottom(tab, false);
+}
+
+/* ---------- dashboard ---------- */
+function renderDashboard() {
+  const p = state.profile;
+  const start = parseFloat(p.startWeight) || 190;
+  const goal = parseFloat(p.goalWeight) || 175;
+  const current = state.weights.length ? state.weights[state.weights.length - 1].weight : start;
+  const lost = start - current;
+  const pct = Math.min(100, Math.max(0, (lost / Math.max(1, start - goal)) * 100));
+
+  $("#dashTitle").textContent = lost >= 1 ? lost.toFixed(1) + " lbs down" : "Day one energy";
+  $("#dashSub").textContent = start + " → " + goal + " lbs · " + p.calories + " kcal · " + p.protein + "g protein";
+  $("#currentWeight").textContent = current;
+  $("#goalLabel").textContent = "current lbs · goal " + goal;
+  $("#pctLabel").textContent = pct.toFixed(0) + "% of the way";
+  $("#goalBar").style.width = pct + "%";
+  $("#statCal").textContent = p.calories;
+  $("#statProtein").textContent = p.protein + "g";
+  $("#statPhotos").textContent = String(state.photos.length);
+
+  // baby countdown
+  if (p.babyDue) {
+    const days = Math.max(0, Math.ceil((new Date(p.babyDue + "T00:00:00") - Date.now()) / 86400000));
+    $("#babyDays").textContent = String(days);
+    $("#babyChip").hidden = false;
+  }
+
+  renderChart();
+  renderWeightLog();
+}
+
+function renderChart() {
+  const svg = $("#weightChart");
+  const empty = $("#chartEmpty");
+  const pts = state.weights.map((w) => ({ x: fmtDayShort(w.loggedAt), y: w.weight }));
+  if (pts.length < 2) {
+    svg.hidden = true;
+    empty.hidden = false;
+    return;
+  }
+  svg.hidden = false;
+  empty.hidden = true;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const W = 600, H = 180, padL = 40, padR = 14, padT = 16, padB = 26;
+  const ys = pts.map((p) => p.y);
+  const minY = Math.min(...ys) - 1.5, maxY = Math.max(...ys) + 1.5;
+  const sx = (i) => padL + (i * (W - padL - padR)) / Math.max(1, pts.length - 1);
+  const sy = (y) => padT + (1 - (y - minY) / (maxY - minY)) * (H - padT - padB);
+  const NS = "http://www.w3.org/2000/svg";
+
+  // gridlines
+  for (let g = 0; g <= 3; g++) {
+    const yv = minY + ((maxY - minY) * g) / 3;
+    const line = document.createElementNS(NS, "line");
+    line.setAttribute("x1", padL); line.setAttribute("x2", W - padR);
+    line.setAttribute("y1", sy(yv)); line.setAttribute("y2", sy(yv));
+    line.setAttribute("stroke", "#262b1c"); line.setAttribute("stroke-width", "1");
+    svg.appendChild(line);
+    const t = document.createElementNS(NS, "text");
+    t.setAttribute("x", 4); t.setAttribute("y", sy(yv) + 4);
+    t.setAttribute("fill", "#9aa08c"); t.setAttribute("font-size", "11");
+    t.textContent = String(Math.round(yv));
+    svg.appendChild(t);
+  }
+
+  // area
+  const area = document.createElementNS(NS, "path");
+  let d = "M" + sx(0) + "," + sy(pts[0].y);
+  pts.forEach((p, i) => { d += " L" + sx(i) + "," + sy(p.y); });
+  d += " L" + sx(pts.length - 1) + "," + (H - padB) + " L" + sx(0) + "," + (H - padB) + " Z";
+  area.setAttribute("d", d);
+  area.setAttribute("fill", "rgba(163,230,53,.14)");
+  svg.appendChild(area);
+
+  // line
+  const line = document.createElementNS(NS, "path");
+  let ld = "M" + sx(0) + "," + sy(pts[0].y);
+  pts.forEach((p, i) => { ld += " L" + sx(i) + "," + sy(p.y); });
+  line.setAttribute("d", ld);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", "#a3e635");
+  line.setAttribute("stroke-width", "2.5");
+  line.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(line);
+
+  // points + x labels (first, last, and up to 6)
+  const labelEvery = Math.ceil(pts.length / 6);
+  pts.forEach((p, i) => {
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", sx(i)); c.setAttribute("cy", sy(p.y));
+    c.setAttribute("r", "3.5"); c.setAttribute("fill", "#a3e635");
+    svg.appendChild(c);
+    if (i % labelEvery === 0 || i === pts.length - 1) {
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("x", sx(i)); t.setAttribute("y", H - 8);
+      t.setAttribute("fill", "#9aa08c"); t.setAttribute("font-size", "10.5");
+      t.setAttribute("text-anchor", "middle");
+      t.textContent = p.x;
+      svg.appendChild(t);
+    }
+  });
+}
+
+function renderWeightLog() {
+  const wrap = $("#weightLog");
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  const recent = state.weights.slice(-5).reverse();
+  recent.forEach((w) => {
+    const row = el("div", "wrow");
+    const left = el("span", null, fmtDayShort(w.loggedAt));
+    const right = el("span");
+    const b = el("b", null, w.weight + " lbs");
+    const del = el("button", "del", "✕");
+    del.title = "Delete entry";
+    del.addEventListener("click", async () => {
+      try {
+        await db.collection("weights").doc(w.id).delete();
+        state.weights = state.weights.filter((x) => x.id !== w.id);
+        renderDashboard();
+        toast("Entry deleted");
+      } catch (e) { toast("Delete failed: " + e.message, true); }
+    });
+    right.appendChild(b);
+    right.appendChild(document.createTextNode(" "));
+    right.appendChild(del);
+    row.appendChild(left);
+    row.appendChild(right);
+    wrap.appendChild(row);
+  });
+}
+
+async function logWeight(val) {
+  const w = parseFloat(val);
+  if (!w || w < 50 || w > 800) { toast("Enter a valid weight in lbs", true); return; }
+  try {
+    const entry = { weight: w, loggedAt: new Date().toISOString() };
+    const ref = await db.collection("weights").add(entry);
+    state.weights.push({ id: ref.id, ...entry });
+    $("#weightInput").value = "";
+    renderDashboard();
+    toast("Weight logged");
+  } catch (e) { toast("Save failed: " + e.message, true); }
+}
+
+/* ---------- photos ---------- */
+function compressImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not read image")); };
+    img.src = url;
+  });
+}
+
+async function compressForFirestore(file) {
+  // Firestore doc limit is 1 MiB; keep base64 under ~900 KB
+  let dim = 1280, q = 0.82;
+  for (let i = 0; i < 4; i++) {
+    const data = await compressImage(file, dim, q);
+    if (data.length < 900000) return data;
+    dim = Math.round(dim * 0.75); q -= 0.1;
+  }
+  return compressImage(file, 800, 0.6);
+}
+
+async function uploadPhoto(file) {
+  const btn = $("#photoBtn");
+  btn.disabled = true;
+  btn.textContent = "⏳ Saving…";
+  try {
+    const imageData = await compressForFirestore(file);
+    const entry = {
+      imageData,
+      label: $("#photoLabel").value,
+      note: $("#photoNote").value.trim(),
+      takenAt: new Date().toISOString(),
+    };
+    const ref = await db.collection("photos").add(entry);
+    state.photos.unshift({ id: ref.id, ...entry });
+    $("#photoNote").value = "";
+    renderPhotos();
+    renderDashboard();
+    toast("Photo saved — consistency is the whole game");
+  } catch (e) {
+    toast("Upload failed: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "📷 Take / upload today's photo";
+    $("#photoFile").value = "";
+  }
+}
+
+function renderPhotos() {
+  const wrap = $("#photoTimeline");
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  $("#photoEmpty").hidden = state.photos.length > 0;
+  $("#compareToggle").disabled = state.photos.length < 2;
+  $("#compareHint").hidden = !state.compareMode;
+  $("#compareCount").textContent = String(state.compareSel.length);
+
+  // group by day
+  const groups = new Map();
+  state.photos.forEach((p) => {
+    const k = dayKey(p.takenAt);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
+  });
+
+  groups.forEach((list) => {
+    wrap.appendChild(el("div", "day-label", fmtDay(list[0].takenAt)));
+    const grid = el("div", "photo-grid");
+    list.forEach((p) => {
+      const cell = el("button", "photo-cell" + (state.compareSel.includes(p.id) ? " selected" : ""));
+      const img = document.createElement("img");
+      img.src = p.imageData;
+      img.alt = p.label;
+      img.loading = "lazy";
+      cell.appendChild(img);
+      cell.appendChild(el("span", "plabel", p.label));
+      if (state.compareSel.includes(p.id)) cell.appendChild(el("span", "check", "✓"));
+      cell.addEventListener("click", () => {
+        if (state.compareMode) toggleCompareSel(p.id);
+        else openViewer(p.id);
+      });
+      grid.appendChild(cell);
+    });
+    wrap.appendChild(grid);
+  });
+
+  renderCompare();
+}
+
+function toggleCompareSel(id) {
+  const i = state.compareSel.indexOf(id);
+  if (i >= 0) state.compareSel.splice(i, 1);
+  else {
+    if (state.compareSel.length >= 2) state.compareSel.shift();
+    state.compareSel.push(id);
+  }
+  renderPhotos();
+}
+
+function renderCompare() {
+  const card = $("#compareCard");
+  const grid = $("#compareGrid");
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  const pair = state.compareSel
+    .map((id) => state.photos.find((p) => p.id === id))
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.takenAt) - new Date(b.takenAt));
+  card.hidden = pair.length !== 2;
+  pair.forEach((p) => {
+    const box = el("div");
+    const img = document.createElement("img");
+    img.src = p.imageData;
+    img.alt = p.label;
+    box.appendChild(img);
+    const cap = el("div", "cap");
+    const b = el("b", null, p.label);
+    cap.appendChild(b);
+    cap.appendChild(document.createTextNode(" · " + fmtDateTime(p.takenAt)));
+    if (p.note) cap.appendChild(document.createTextNode(" · " + p.note));
+    box.appendChild(cap);
+    grid.appendChild(box);
+  });
+}
+
+function openViewer(id) {
+  const p = state.photos.find((x) => x.id === id);
+  if (!p) return;
+  state.viewerId = id;
+  $("#viewerImg").src = p.imageData;
+  const meta = $("#viewerMeta");
+  while (meta.firstChild) meta.removeChild(meta.firstChild);
+  const strong = el("b", null, p.label);
+  strong.style.textTransform = "capitalize";
+  meta.appendChild(strong);
+  meta.appendChild(el("span", null, " · " + fmtDateTime(p.takenAt) + (p.note ? " · " + p.note : "")));
+  $("#viewer").hidden = false;
+}
+
+async function deleteViewerPhoto() {
+  const id = state.viewerId;
+  if (!id) return;
+  try {
+    await db.collection("photos").doc(id).delete();
+    state.photos = state.photos.filter((p) => p.id !== id);
+    state.compareSel = state.compareSel.filter((x) => x !== id);
+    $("#viewer").hidden = true;
+    state.viewerId = null;
+    renderPhotos();
+    renderDashboard();
+    toast("Photo deleted");
+  } catch (e) { toast("Delete failed: " + e.message, true); }
+}
+
+/* ---------- coaches ---------- */
+function buildCoachPanel(coachId) {
+  const meta = COACHES[coachId];
+  const panel = $("#panel-" + coachId);
+
+  const head = el("div", "chat-head");
+  const idBox = el("div", "chat-id");
+  idBox.appendChild(el("div", "avatar", meta.short[0]));
+  const nameBox = el("div");
+  nameBox.appendChild(el("div", "chat-name", meta.name));
+  nameBox.appendChild(el("div", "chat-role", meta.title));
+  idBox.appendChild(nameBox);
+  head.appendChild(idBox);
+  const reset = el("button", "link-btn", "↺ Reset");
+  reset.addEventListener("click", () => clearChat(coachId));
+  head.appendChild(reset);
+  panel.appendChild(head);
+
+  const scroll = el("div", "chat-scroll");
+  scroll.id = "chatScroll-" + coachId;
+  panel.appendChild(scroll);
+
+  const bar = el("form", "chat-input-bar");
+  const ta = document.createElement("textarea");
+  ta.rows = 1;
+  ta.placeholder = "Ask " + meta.short + " anything…";
+  ta.id = "chatInput-" + coachId;
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      bar.requestSubmit();
+    }
+  });
+  const send = el("button", "send-btn", "➤");
+  send.type = "submit";
+  send.id = "chatSend-" + coachId;
+  bar.appendChild(ta);
+  bar.appendChild(send);
+  bar.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = ta.value.trim();
+    if (text) sendCoachMessage(coachId, text);
+  });
+  panel.appendChild(bar);
+  panel.appendChild(el("p", "chat-disclaimer", "AI coach, not a doctor. It knows your targets from Settings."));
+}
+
+function scrollChatBottom(coachId, smooth) {
+  const panel = $("#panel-" + coachId);
+  requestAnimationFrame(() => {
+    const kids = $("#chatScroll-" + coachId);
+    if (kids && kids.lastElementChild) {
+      kids.lastElementChild.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
+    }
+    window.scrollTo({ top: panel.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  });
+}
+
+function renderChat(coachId) {
+  const meta = COACHES[coachId];
+  const wrap = $("#chatScroll-" + coachId);
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  const msgs = state.chats[coachId];
+
+  if (!msgs.length) {
+    wrap.appendChild(el("div", "msg bot", meta.greeting));
+    const sug = el("div", "suggestions");
+    meta.suggestions.forEach((s) => {
+      const chip = el("button", "chip", s);
+      chip.addEventListener("click", () => sendCoachMessage(coachId, s));
+      sug.appendChild(chip);
+    });
+    wrap.appendChild(sug);
+    return;
+  }
+
+  msgs.forEach((m) => {
+    const div = el("div", "msg " + (m.role === "user" ? "user" : "bot"));
+    div.appendChild(document.createTextNode(m.content));
+    div.appendChild(el("span", "time", fmtTime(m.at)));
+    wrap.appendChild(div);
+  });
+
+  if (state.sending[coachId]) {
+    const t = el("div", "msg bot typing");
+    const s = el("span", "spin", "◌");
+    t.appendChild(s);
+    t.appendChild(document.createTextNode(meta.short + " is thinking…"));
+    wrap.appendChild(t);
+  }
+}
+
+function coachSystemPrompt(coachId) {
+  const p = state.profile;
+  const shared =
+    "\n\nCLIENT PROFILE:\n- Height: " + p.height + ", Age: " + p.age +
+    "\n- Start weight: " + p.startWeight + " lbs, Goal: " + p.goalWeight + " lbs" +
+    "\n- Daily targets: " + p.calories + " calories, " + p.protein + "g protein" +
+    "\n- Background: " + p.context +
+    "\n\nRULES:\n- Be direct, warm, and practical. Short paragraphs. No fluff." +
+    "\n- Give specific numbers, portions, sets, and reps — never vague advice." +
+    "\n- You are not a doctor; for medical red flags, say so briefly and move on." +
+    "\n- Remember the conversation history and build on it.";
+  if (coachId === "nutrition") {
+    return "You are Maya, an expert sports nutritionist and fat-loss coach." + shared +
+      "\n- Stay within the client's calorie and protein targets unless asked otherwise." +
+      "\n- When suggesting meals, include rough calories and protein per item." +
+      "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make.";
+  }
+  return "You are Dre, an expert strength coach specializing in home training and training around lower-back issues." + shared +
+    "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
+    "\n- Protect the lower back: coach brace/neutral spine, swap risky movements proactively." +
+    "\n- Account for mono/EBV history: moderate intensity, no grind-to-failure every session.";
+}
+
+async function callClaude(coachId) {
+  const key = localStorage.getItem(KEY_CLAUDE);
+  if (!key) {
+    return "I'm ready to coach you, but I need a brain first — add your Anthropic API key in Settings (⚙️ tab → AI connection). " +
+      "If you've saved one on kimis-sandbox before, it should already work — same browser, same key slot. " +
+      "Your targets are already loaded: " + state.profile.calories + " kcal / " + state.profile.protein +
+      "g protein, " + state.profile.startWeight + " → " + state.profile.goalWeight + " lbs.";
+  }
+  const history = state.chats[coachId].slice(-30).map((m) => ({ role: m.role, content: m.content }));
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 1200,
+      system: coachSystemPrompt(coachId),
+      messages: history,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error("Claude API " + res.status + ": " + text.slice(0, 200));
+  }
+  const data = await res.json();
+  const out = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  if (!out) throw new Error("Claude returned an empty response");
+  return out;
+}
+
+async function sendCoachMessage(coachId, text) {
+  if (state.sending[coachId]) return;
+  state.sending[coachId] = true;
+  $("#chatInput-" + coachId).value = "";
+  try {
+    await addChatMsg(coachId, "user", text);
+  } catch (e) {
+    state.sending[coachId] = false;
+    toast("Save failed: " + e.message, true);
+    return;
+  }
+  renderChat(coachId);
+  scrollChatBottom(coachId, true);
+  let reply;
+  try {
+    reply = await callClaude(coachId);
+  } catch (e) {
+    reply = "Hmm, my brain hiccuped: " + e.message + ". Check the API key in Settings and try again.";
+  }
+  try {
+    await addChatMsg(coachId, "assistant", reply);
+  } catch (e) {
+    console.warn("reply save failed:", e);
+    state.chats[coachId].push({ id: "local-" + Date.now(), role: "assistant", content: reply, at: new Date().toISOString() });
+  }
+  state.sending[coachId] = false;
+  renderChat(coachId);
+  scrollChatBottom(coachId, true);
+}
+
+async function clearChat(coachId) {
+  try {
+    const snap = await db.collection("chats").doc(coachId).collection("messages").get();
+    const batch = db.batch();
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    state.chats[coachId] = [];
+    renderChat(coachId);
+    toast("Conversation cleared");
+  } catch (e) { toast("Clear failed: " + e.message, true); }
+}
+
+/* ---------- settings ---------- */
+const PROFILE_FIELDS = ["height", "age", "startWeight", "goalWeight", "calories", "protein", "babyDue", "context"];
+
+function renderSettings() {
+  PROFILE_FIELDS.forEach((f) => { $("#s_" + f).value = state.profile[f] || ""; });
+  $("#aiPill").hidden = !localStorage.getItem(KEY_CLAUDE);
+}
+
+async function onSaveProfile() {
+  PROFILE_FIELDS.forEach((f) => { state.profile[f] = $("#s_" + f).value.trim(); });
+  try {
+    await saveProfile();
+    renderDashboard();
+    toast("Profile saved — your coaches will use it");
+  } catch (e) { toast("Save failed: " + e.message, true); }
+}
+
+function onSaveKey() {
+  const v = $("#s_apiKey").value.trim();
+  if (!v) { toast("Paste a key first", true); return; }
+  localStorage.setItem(KEY_CLAUDE, v);
+  $("#s_apiKey").value = "";
+  $("#aiPill").hidden = false;
+  toast("Key saved — coaches are live");
+}
+
+/* ---------- boot ---------- */
+function wireEvents() {
+  document.querySelectorAll("[data-go]").forEach((b) => {
+    b.addEventListener("click", () => go(b.dataset.go));
+  });
+  $("#weightForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    logWeight($("#weightInput").value);
+  });
+  $("#photoBtn").addEventListener("click", () => $("#photoFile").click());
+  $("#photoFile").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) uploadPhoto(f);
+  });
+  $("#compareToggle").addEventListener("click", () => {
+    state.compareMode = !state.compareMode;
+    state.compareSel = [];
+    $("#compareToggle").classList.toggle("ghost", !state.compareMode);
+    renderPhotos();
+  });
+  $("#viewerClose").addEventListener("click", () => { $("#viewer").hidden = true; state.viewerId = null; });
+  $("#viewerDelete").addEventListener("click", deleteViewerPhoto);
+  $("#viewer").addEventListener("click", (e) => {
+    if (e.target === $("#viewer")) { $("#viewer").hidden = true; state.viewerId = null; }
+  });
+  $("#saveProfile").addEventListener("click", onSaveProfile);
+  $("#saveKey").addEventListener("click", onSaveKey);
+}
+
+async function boot() {
+  buildCoachPanel("nutrition");
+  buildCoachPanel("gym");
+  wireEvents();
+  if (!db) {
+    toast("Firebase failed to initialize — check your connection", true);
+    return;
+  }
+  try {
+    await Promise.all([
+      loadProfile(),
+      loadWeights(),
+      loadPhotos(),
+      loadChat("nutrition"),
+      loadChat("gym"),
+    ]);
+  } catch (e) {
+    toast("Could not load data: " + e.message + " — check Firestore is enabled and rules allow read/write", true);
+  }
+  renderDashboard();
+  renderPhotos();
+  renderChat("nutrition");
+  renderChat("gym");
+  renderSettings();
+}
+
+document.addEventListener("DOMContentLoaded", boot);

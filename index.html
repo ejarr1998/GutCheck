@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>GutCheck — Fit Journey</title>
+<meta name="description" content="Progress photos, weight tracking, and AI coaches for the 190 → 175 mission.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💪</text></svg>">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="brand" data-go="dashboard">
+    <span class="brand-mark">💪</span>
+    <span class="brand-name">GutCheck</span>
+  </button>
+  <div class="baby-chip" id="babyChip" hidden>
+    <span aria-hidden="true">👶</span>
+    <span><b id="babyDays">–</b> days to baby</span>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ DASHBOARD ============ -->
+  <section class="tab-panel" id="panel-dashboard">
+    <div class="page-head">
+      <h1 id="dashTitle">Day one energy</h1>
+      <p class="sub" id="dashSub"></p>
+    </div>
+
+    <div class="card">
+      <div class="progress-top">
+        <div>
+          <div class="big-num" id="currentWeight">–</div>
+          <div class="tiny muted" id="goalLabel">current lbs</div>
+        </div>
+        <div class="pct" id="pctLabel">0%</div>
+      </div>
+      <div class="bar"><div class="bar-fill" id="goalBar" style="width:0%"></div></div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="card stat"><div class="stat-ico">🔥</div><div class="stat-num" id="statCal">–</div><div class="tiny muted">kcal / day</div></div>
+      <div class="card stat"><div class="stat-ico">🎯</div><div class="stat-num" id="statProtein">–</div><div class="tiny muted">protein / day</div></div>
+      <div class="card stat"><div class="stat-ico">📸</div><div class="stat-num" id="statPhotos">0</div><div class="tiny muted">progress photos</div></div>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">⚖️ Log today's weight</h2>
+      <form id="weightForm" class="row-form">
+        <input id="weightInput" inputmode="decimal" placeholder="e.g. 188.5" autocomplete="off">
+        <button class="btn" type="submit">Log</button>
+      </form>
+      <div class="chart-wrap" id="chartWrap">
+        <svg id="weightChart" viewBox="0 0 600 180" preserveAspectRatio="none" hidden></svg>
+        <div class="chart-empty" id="chartEmpty">Log two weigh-ins and your trend line appears here</div>
+      </div>
+      <div class="weight-log" id="weightLog"></div>
+    </div>
+
+    <div class="quick-grid">
+      <button class="btn ghost tall" data-go="photos">📸 Take today's photo</button>
+      <button class="btn ghost tall" data-go="nutrition">🔥 Ask the nutritionist</button>
+    </div>
+  </section>
+
+  <!-- ============ PHOTOS ============ -->
+  <section class="tab-panel" id="panel-photos" hidden>
+    <div class="page-head row-between">
+      <div>
+        <h1>Progress photos</h1>
+        <p class="sub">Same spot, same light, daily. The scale lies; photos don't.</p>
+      </div>
+      <button class="btn ghost sm" id="compareToggle" disabled>⇄ Compare</button>
+    </div>
+
+    <div class="card">
+      <div class="row-form">
+        <select id="photoLabel">
+          <option value="front">Front</option>
+          <option value="side">Side</option>
+          <option value="back">Back</option>
+          <option value="other">Other</option>
+        </select>
+        <input id="photoNote" placeholder="Note (optional) — e.g. week 3, morning" autocomplete="off">
+      </div>
+      <input type="file" id="photoFile" accept="image/*" hidden>
+      <button class="btn big" id="photoBtn">📷 Take / upload today's photo</button>
+    </div>
+
+    <div class="card" id="compareCard" hidden>
+      <div class="compare-grid" id="compareGrid"></div>
+    </div>
+
+    <div id="photoTimeline"></div>
+    <div class="empty" id="photoEmpty" hidden>
+      No photos yet — take your day-one photo now.<br>Future-you will thank present-you.
+    </div>
+    <p class="hint" id="compareHint" hidden>Tap two photos to compare side by side (<span id="compareCount">0</span>/2)</p>
+
+    <div class="viewer" id="viewer" hidden>
+      <div class="viewer-bar">
+        <div class="viewer-meta" id="viewerMeta"></div>
+        <div>
+          <button class="icon-btn" id="viewerDelete" title="Delete">🗑</button>
+          <button class="icon-btn" id="viewerClose" title="Close">✕</button>
+        </div>
+      </div>
+      <div class="viewer-body"><img id="viewerImg" alt="progress photo"></div>
+    </div>
+  </section>
+
+  <!-- ============ COACHES ============ -->
+  <section class="tab-panel" id="panel-nutrition" hidden data-coach="nutrition"></section>
+  <section class="tab-panel" id="panel-gym" hidden data-coach="gym"></section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="tab-panel" id="panel-settings" hidden>
+    <div class="page-head">
+      <h1>Settings</h1>
+      <p class="sub">Your profile powers both coaches' advice.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">👤 Your profile &amp; targets</h2>
+      <div class="form-grid">
+        <label>Height<input id="s_height"></label>
+        <label>Age<input id="s_age" inputmode="numeric"></label>
+        <label>Start weight (lbs)<input id="s_startWeight" inputmode="decimal"></label>
+        <label>Goal weight (lbs)<input id="s_goalWeight" inputmode="decimal"></label>
+        <label>Daily calories<input id="s_calories" inputmode="numeric"></label>
+        <label>Daily protein (g)<input id="s_protein" inputmode="numeric"></label>
+      </div>
+      <label class="full">Baby due date<input id="s_babyDue" type="date"></label>
+      <label class="full">Coach context
+        <textarea id="s_context" rows="5"></textarea>
+      </label>
+      <p class="hint left">Injuries, schedule, equipment, preferences — anything the coaches should always consider.</p>
+      <button class="btn big" id="saveProfile">Save profile</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">🧠 AI connection <span class="pill" id="aiPill" hidden>connected</span></h2>
+      <p class="sub left">The coaches run on Claude (Anthropic), called straight from your browser — same pattern as your other projects. The key lives only in this browser's localStorage (<code>sandbox_key_claude</code>); if you already saved it on kimis-sandbox, you're done.</p>
+      <label class="full">Anthropic API key<input id="s_apiKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+      <button class="btn big" id="saveKey">Save key</button>
+      <p class="hint left">Chats are stored in your Firebase project so they sync across devices.</p>
+    </div>
+
+    <p class="footer-note">GutCheck · photos, weights, and chats live in your own Firebase project</p>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button data-go="dashboard" class="tab-btn active"><span class="tab-ico">🏠</span>Home</button>
+  <button data-go="photos" class="tab-btn"><span class="tab-ico">📸</span>Photos</button>
+  <button data-go="nutrition" class="tab-btn"><span class="tab-ico">🥗</span>Nutritionist</button>
+  <button data-go="gym" class="tab-btn"><span class="tab-ico">🏋️</span>Coach</button>
+  <button data-go="settings" class="tab-btn"><span class="tab-ico">⚙️</span>Settings</button>
+</nav>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
