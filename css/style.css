@@ -47,6 +47,14 @@ body {
   border-radius: 999px; padding: 5px 12px; font-size: 12px; color: var(--muted);
 }
 .baby-chip b { color: var(--text); }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.fs-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+  font-size: 16px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.fs-btn:active { transform: scale(.94); }
 
 /* ---------- layout ---------- */
 main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
