@@ -1,0 +1,19 @@
+{
+  "name": "GutCheck — Fit Journey",
+  "short_name": "GutCheck",
+  "description": "Progress photos, weight tracking, and AI coaches for the 190 to 175 mission.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0e09",
+  "theme_color": "#0c0e09",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
