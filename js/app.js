@@ -44,6 +44,8 @@ function toast(msg, isErr) {
 
 /* ---------- constants ---------- */
 const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
+const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT + TTS
+const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-arcas-en" }; // Maya / Dre
 
 const DEFAULT_PROFILE = {
   height: "6'2\"",
@@ -102,6 +104,14 @@ const state = {
   compareMode: false,
   compareSel: [],
   viewerId: null,
+  voice: {
+    recorder: null,
+    chunks: [],
+    coachId: null,
+    autoSpeakNext: { nutrition: false, gym: false },
+    audio: null,
+    speakBtn: null,
+  },
 };
 
 /* ---------- Firestore helpers ---------- */
@@ -167,6 +177,7 @@ function dayKey(iso) {
 const TABS = ["dashboard", "photos", "nutrition", "gym", "settings"];
 function go(tab) {
   state.tab = tab;
+  stopSpeaking();
   TABS.forEach((t) => { $("#panel-" + t).hidden = t !== tab; });
   document.querySelectorAll(".tab-btn").forEach((b) => {
     b.classList.toggle("active", b.dataset.go === tab);
@@ -513,10 +524,16 @@ function buildCoachPanel(coachId) {
       bar.requestSubmit();
     }
   });
+  const mic = el("button", "mic-btn", "🎙");
+  mic.type = "button";
+  mic.id = "chatMic-" + coachId;
+  mic.title = "Talk to " + meta.short;
+  mic.addEventListener("click", () => toggleRecording(coachId));
   const send = el("button", "send-btn", "➤");
   send.type = "submit";
   send.id = "chatSend-" + coachId;
   bar.appendChild(ta);
+  bar.appendChild(mic);
   bar.appendChild(send);
   bar.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -559,7 +576,14 @@ function renderChat(coachId) {
   msgs.forEach((m) => {
     const div = el("div", "msg " + (m.role === "user" ? "user" : "bot"));
     div.appendChild(document.createTextNode(m.content));
-    div.appendChild(el("span", "time", fmtTime(m.at)));
+    const foot = el("span", "time", fmtTime(m.at));
+    div.appendChild(foot);
+    if (m.role !== "user") {
+      const spk = el("button", "speak-btn", "🔊");
+      spk.title = "Play as " + meta.short;
+      spk.addEventListener("click", () => speakText(coachId, m.content, spk));
+      div.appendChild(spk);
+    }
     wrap.appendChild(div);
   });
 
@@ -629,6 +653,170 @@ async function callClaude(coachId) {
   return out;
 }
 
+/* ---------- voice (Deepgram: nova-3 STT + aura-2 TTS) ---------- */
+function deepgramKey() {
+  return localStorage.getItem(KEY_DEEPGRAM) || "";
+}
+
+function pickMime() {
+  if (!window.MediaRecorder) return null;
+  const cands = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
+  for (const m of cands) {
+    try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) { /* keep looking */ }
+  }
+  return null;
+}
+
+async function toggleRecording(coachId) {
+  const mic = $("#chatMic-" + coachId);
+  // stop path
+  if (state.voice.recorder && state.voice.recorder.state === "recording") {
+    state.voice.recorder.stop();
+    return;
+  }
+  if (!deepgramKey()) {
+    toast("Add your Deepgram key first (⚙️ Settings → Voice)", true);
+    return;
+  }
+  const mime = pickMime();
+  if (!mime || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("Voice recording isn't supported in this browser", true);
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast("Microphone access denied — allow the mic and try again", true);
+    return;
+  }
+  const rec = new MediaRecorder(stream, { mimeType: mime });
+  state.voice.chunks = [];
+  state.voice.coachId = coachId;
+  state.voice.recorder = rec;
+  rec.addEventListener("dataavailable", (e) => {
+    if (e.data && e.data.size) state.voice.chunks.push(e.data);
+  });
+  rec.addEventListener("stop", async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    mic.classList.remove("recording");
+    mic.textContent = "⏳";
+    mic.disabled = true;
+    const blob = new Blob(state.voice.chunks, { type: mime.split(";")[0] });
+    state.voice.recorder = null;
+    try {
+      const text = await transcribeAudio(blob);
+      if (text) {
+        const ta = $("#chatInput-" + coachId);
+        ta.value = (ta.value ? ta.value.trim() + " " : "") + text;
+        state.voice.autoSpeakNext[coachId] = true; // voice in → voice out
+        ta.focus();
+      } else {
+        toast("Didn't catch that — try again", true);
+      }
+    } catch (e) {
+      toast("Transcription failed: " + e.message, true);
+    } finally {
+      mic.textContent = "🎙";
+      mic.disabled = false;
+    }
+  });
+  rec.start();
+  mic.classList.add("recording");
+  mic.textContent = "⏹";
+}
+
+async function transcribeAudio(blob) {
+  const res = await fetch("https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true", {
+    method: "POST",
+    headers: {
+      Authorization: "Token " + deepgramKey(),
+      "Content-Type": blob.type || "application/octet-stream",
+    },
+    body: blob,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error("Deepgram STT " + res.status + ": " + t.slice(0, 160));
+  }
+  const data = await res.json();
+  const alt = data.results && data.results.channels && data.results.channels[0] &&
+    data.results.channels[0].alternatives && data.results.channels[0].alternatives[0];
+  return alt && alt.transcript ? alt.transcript.trim() : "";
+}
+
+function stopSpeaking() {
+  if (state.voice.audio) {
+    try { state.voice.audio.pause(); } catch (e) { /* noop */ }
+    state.voice.audio = null;
+  }
+  if (state.voice.speakBtn) {
+    state.voice.speakBtn.classList.remove("speaking");
+    state.voice.speakBtn.textContent = "🔊";
+    state.voice.speakBtn = null;
+  }
+}
+
+async function speakText(coachId, text, btn) {
+  // tapping the playing button stops playback
+  if (state.voice.speakBtn === btn && state.voice.audio) {
+    stopSpeaking();
+    return;
+  }
+  stopSpeaking();
+  if (!deepgramKey()) {
+    toast("Add your Deepgram key first (⚙️ Settings → Voice)", true);
+    return;
+  }
+  if (btn) {
+    btn.classList.add("speaking");
+    btn.textContent = "⏸";
+    state.voice.speakBtn = btn;
+  }
+  try {
+    const voice = COACH_VOICES[coachId] || COACH_VOICES.nutrition;
+    // Deepgram speak accepts ~2000 chars per call — split long replies on sentence boundaries
+    const chunks = [];
+    let rest = text;
+    while (rest.length > 1800) {
+      let cut = Math.max(rest.lastIndexOf(". ", 1800), rest.lastIndexOf("! ", 1800), rest.lastIndexOf("? ", 1800), rest.lastIndexOf("\n", 1800));
+      if (cut < 400) cut = 1800;
+      chunks.push(rest.slice(0, cut + 1));
+      rest = rest.slice(cut + 1).trim();
+    }
+    if (rest) chunks.push(rest);
+
+    for (const chunk of chunks) {
+      const res = await fetch("https://api.deepgram.com/v1/speak?model=" + voice, {
+        method: "POST",
+        headers: {
+          Authorization: "Token " + deepgramKey(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: chunk }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error("Deepgram TTS " + res.status + ": " + t.slice(0, 160));
+      }
+      const audioBlob = await res.blob();
+      const url = URL.createObjectURL(audioBlob);
+      await new Promise((resolve) => {
+        const a = new Audio(url);
+        state.voice.audio = a;
+        a.addEventListener("ended", () => { URL.revokeObjectURL(url); resolve(); });
+        a.addEventListener("error", () => { URL.revokeObjectURL(url); resolve(); });
+        a.play().catch(() => resolve()); // autoplay policy / headless: don't hang the queue
+      });
+      if (!state.voice.audio) break; // user stopped playback
+    }
+  } catch (e) {
+    toast("Voice failed: " + e.message, true);
+  } finally {
+    stopSpeaking();
+  }
+}
+
 async function sendCoachMessage(coachId, text) {
   if (state.sending[coachId]) return;
   state.sending[coachId] = true;
@@ -657,6 +845,10 @@ async function sendCoachMessage(coachId, text) {
   state.sending[coachId] = false;
   renderChat(coachId);
   scrollChatBottom(coachId, true);
+  if (state.voice.autoSpeakNext[coachId]) {
+    state.voice.autoSpeakNext[coachId] = false;
+    speakText(coachId, reply, null);
+  }
 }
 
 async function clearChat(coachId) {
@@ -677,6 +869,7 @@ const PROFILE_FIELDS = ["height", "age", "startWeight", "goalWeight", "calories"
 function renderSettings() {
   PROFILE_FIELDS.forEach((f) => { $("#s_" + f).value = state.profile[f] || ""; });
   $("#aiPill").hidden = !localStorage.getItem(KEY_CLAUDE);
+  $("#dgPill").hidden = !localStorage.getItem(KEY_DEEPGRAM);
 }
 
 async function onSaveProfile() {
@@ -695,6 +888,15 @@ function onSaveKey() {
   $("#s_apiKey").value = "";
   $("#aiPill").hidden = false;
   toast("Key saved — coaches are live");
+}
+
+function onSaveDgKey() {
+  const v = $("#s_dgKey").value.trim();
+  if (!v) { toast("Paste a key first", true); return; }
+  localStorage.setItem(KEY_DEEPGRAM, v);
+  $("#s_dgKey").value = "";
+  $("#dgPill").hidden = false;
+  toast("Voice key saved — tap 🎙 in any coach chat");
 }
 
 /* ---------- boot ---------- */
@@ -724,6 +926,7 @@ function wireEvents() {
   });
   $("#saveProfile").addEventListener("click", onSaveProfile);
   $("#saveKey").addEventListener("click", onSaveKey);
+  $("#saveDgKey").addEventListener("click", onSaveDgKey);
 }
 
 async function boot() {
