@@ -173,6 +173,29 @@ function dayKey(iso) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
+/* ---------- fullscreen ---------- */
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+    return;
+  }
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch((e) => {
+      toast("Couldn't enter fullscreen: " + e.message, true);
+    });
+  } else {
+    toast("Fullscreen isn't supported in this browser — use Add to Home Screen instead", true);
+  }
+}
+
+function syncFsBtn() {
+  const btn = $("#fsToggle");
+  if (btn) {
+    btn.textContent = document.fullscreenElement ? "✕" : "⛶";
+    btn.title = document.fullscreenElement ? "Exit full screen" : "Full screen";
+  }
+}
+
 /* ---------- tabs ---------- */
 const TABS = ["dashboard", "photos", "nutrition", "gym", "settings"];
 function go(tab) {
@@ -928,6 +951,8 @@ function wireEvents() {
   $("#saveProfile").addEventListener("click", onSaveProfile);
   $("#saveKey").addEventListener("click", onSaveKey);
   $("#saveDgKey").addEventListener("click", onSaveDgKey);
+  $("#fsToggle").addEventListener("click", toggleFullscreen);
+  document.addEventListener("fullscreenchange", syncFsBtn);
 }
 
 async function boot() {
