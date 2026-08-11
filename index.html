@@ -67,6 +67,46 @@
       <div class="card stat"><div class="stat-ico">📸</div><div class="stat-num" id="statPhotos">0</div><div class="tiny muted">progress photos</div></div>
     </div>
 
+    <div class="streak-row">
+      <div class="streak-chip"><span class="flame">⚖️🔥</span><span><b id="streakWeight">0</b> day weigh-in streak</span></div>
+      <div class="streak-chip"><span class="flame">📸🔥</span><span><b id="streakPhoto">0</b> day photo streak</span></div>
+    </div>
+
+    <div class="card" id="fuelCard">
+      <h2 class="card-title">🍽 Today's fuel <span class="pill" id="fuelLeft">–</span></h2>
+      <div class="fuel-row">
+        <span class="tiny muted">calories</span>
+        <div class="bar fuel-bar"><div class="bar-fill" id="fuelCalBar" style="width:0%"></div></div>
+        <span class="tiny" id="fuelCalLabel">0 / 2100</span>
+      </div>
+      <div class="fuel-row">
+        <span class="tiny muted">protein</span>
+        <div class="bar fuel-bar"><div class="bar-fill" id="fuelProBar" style="width:0%"></div></div>
+        <span class="tiny" id="fuelProLabel">0 / 160g</span>
+      </div>
+      <div class="weight-log" id="mealList"></div>
+
+      <div class="meal-form">
+        <textarea id="mealDesc" rows="2" placeholder="What did you eat? e.g. chicken burrito bowl, extra rice…"></textarea>
+        <div class="attach-prev" id="mealPhotoPrev" hidden></div>
+        <div class="row-form">
+          <button class="btn ghost" type="button" id="mealPhotoBtn">📷 Photo</button>
+          <button class="btn" type="button" id="mealEstimateBtn">✨ Maya, log this</button>
+        </div>
+      </div>
+
+      <div class="meal-confirm" id="mealConfirm" hidden>
+        <div class="meal-est" id="mealEstText"></div>
+        <div class="row-form">
+          <label class="fuel-edit">kcal<input id="m_cal" inputmode="numeric"></label>
+          <label class="fuel-edit">protein (g)<input id="m_pro" inputmode="numeric"></label>
+          <button class="btn" type="button" id="mealSaveBtn">Save</button>
+          <button class="btn ghost" type="button" id="mealCancelBtn">✕</button>
+        </div>
+      </div>
+      <button class="link-btn center-btn" id="mealManualBtn" type="button">Enter numbers manually</button>
+    </div>
+
     <div class="card">
       <h2 class="card-title">⚖️ Log today's weight</h2>
       <form id="weightForm" class="row-form">
@@ -74,10 +114,31 @@
         <button class="btn" type="submit">Log</button>
       </form>
       <div class="chart-wrap" id="chartWrap">
+        <div class="chart-head-row">
+          <span class="tiny muted">weight trend</span>
+          <div class="chart-toggle" id="chartToggle">
+            <button type="button" data-mode="raw" class="on">Raw</button>
+            <button type="button" data-mode="smooth">7-day avg</button>
+          </div>
+        </div>
         <svg id="weightChart" viewBox="0 0 600 180" preserveAspectRatio="none" hidden></svg>
         <div class="chart-empty" id="chartEmpty">Log two weigh-ins and your trend line appears here</div>
+        <div class="trend-note" id="trendNote" hidden></div>
       </div>
       <div class="weight-log" id="weightLog"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">📏 Measurements</h2>
+      <form id="measForm" class="form-grid">
+        <label>Waist (in)<input id="m_waist" inputmode="decimal"></label>
+        <label>Chest (in)<input id="m_chest" inputmode="decimal"></label>
+        <label>Arms (in)<input id="m_arms" inputmode="decimal"></label>
+        <label>Thighs (in)<input id="m_thighs" inputmode="decimal"></label>
+      </form>
+      <button class="btn big" id="logMeasBtn">Log measurements</button>
+      <div class="meas-grid" id="measGrid" style="margin-top:12px"></div>
+      <p class="hint left" id="measEmpty">Log any fields you're tracking — leave the rest blank.</p>
     </div>
 
     <div class="quick-grid">
@@ -134,7 +195,19 @@
 
   <!-- ============ COACHES ============ -->
   <section class="tab-panel" id="panel-nutrition" hidden data-coach="nutrition"></section>
-  <section class="tab-panel" id="panel-gym" hidden data-coach="gym"></section>
+  <section class="tab-panel" id="panel-gym" hidden data-coach="gym">
+    <div class="card" id="heatmapCard">
+      <h2 class="card-title">🏋️ Workout history</h2>
+      <div class="heatmap-wrap">
+        <div class="heatmap-grid" id="heatmapGrid"></div>
+      </div>
+      <div class="heatmap-legend">
+        less <div class="heat-cell"></div><div class="heat-cell lvl1"></div><div class="heat-cell lvl2"></div><div class="heat-cell lvl3"></div><div class="heat-cell lvl4"></div> more
+      </div>
+      <div class="heatmap-summary" id="heatmapSummary"></div>
+      <div class="heatmap-day-detail" id="heatmapDetail" hidden></div>
+    </div>
+  </section>
 
   <!-- ============ SETTINGS ============ -->
   <section class="tab-panel" id="panel-settings" hidden>
@@ -183,6 +256,13 @@
       <label class="full">xAI API key<input id="s_grokKey" type="password" placeholder="xai-…" autocomplete="off"></label>
       <button class="btn big" id="saveGrokKey">Save image key</button>
       <button class="btn ghost big" id="regenAvatars" style="margin-top:8px">✨ Generate new coach avatars</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">⬇️ Backup / export</h2>
+      <p class="sub left">Download everything — weights, measurements, meals, workouts, photos, and both coaches' chat history — as a single JSON file. Keep it somewhere safe; nothing here restores from it yet, it's insurance against a Firebase mishap.</p>
+      <button class="btn big" id="exportBtn">Export all data</button>
+      <p class="export-status" id="exportStatus" hidden></p>
     </div>
 
     <div class="card" id="installCard">

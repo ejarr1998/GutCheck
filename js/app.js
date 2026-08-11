@@ -101,6 +101,11 @@ const state = {
   profile: { ...DEFAULT_PROFILE },
   weights: [], // {id, weight, loggedAt}
   photos: [],  // {id, imageData, label, note, takenAt}
+  measurements: [], // {id, loggedAt, waist, chest, arms, thighs}
+  meals: [],        // {id, loggedAt, name, calories, protein, source}
+  workouts: [],     // {id, startedAt, finishedAt, durationSec, sets}
+  chartMode: "raw", // "raw" | "smooth"
+  heatmapSel: null, // dayKey of selected heatmap cell
   chats: { nutrition: [], gym: [] }, // {id, role, content, at}
   sending: { nutrition: false, gym: false },
   attach: { nutrition: null, gym: null }, // pending photo to send (data URL)
@@ -145,6 +150,18 @@ async function loadPhotos() {
   state.photos = await fsGet("photos", "takenAt", "desc");
 }
 
+async function loadMeasurements() {
+  state.measurements = await fsGet("measurements", "loggedAt", "asc");
+}
+
+async function loadMeals() {
+  state.meals = await fsGet("meals", "loggedAt", "asc");
+}
+
+async function loadWorkouts() {
+  state.workouts = await fsGet("workouts", "startedAt", "asc");
+}
+
 async function loadChat(coach) {
   state.chats[coach] = await fsGet("chats/" + coach + "/messages", "at", "asc");
 }
@@ -176,6 +193,26 @@ function fmtTime(iso) {
 function dayKey(iso) {
   const d = new Date(iso);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+// Counts consecutive days (ending today or yesterday) that have at least one entry.
+// entries: array of {..., [dateField]: iso}. Walks backward from today so a
+// missed day breaks the streak; still-open "today" doesn't count against you yet.
+function computeStreak(entries, dateField) {
+  if (!entries.length) return 0;
+  const days = new Set(entries.map((e) => dayKey(e[dateField])));
+  const today = new Date();
+  let streak = 0;
+  let cursor = new Date(today);
+  // if today has no entry yet, start counting from yesterday instead of breaking at 0
+  if (!days.has(dayKey(cursor.toISOString()))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  while (days.has(dayKey(cursor.toISOString()))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 /* ---------- fullscreen ---------- */
@@ -241,19 +278,70 @@ function renderDashboard() {
     $("#babyCard").hidden = false;
   }
 
+  const wStreak = computeStreak(state.weights, "loggedAt");
+  const pStreak = computeStreak(state.photos, "takenAt");
+  $("#streakWeight").textContent = String(wStreak);
+  $("#streakPhoto").textContent = String(pStreak);
+
   renderChart();
   renderWeightLog();
+  renderMeasurements();
+  maybeShowStreakReminder(wStreak, pStreak);
+}
+
+// Gentle evening nudge if today's weigh-in or photo is still missing.
+// Client-side only (checked on each dashboard render / app open) — this app
+// has no push notification backend, so it can only remind you while it's open.
+let streakReminderShownThisLoad = false;
+function maybeShowStreakReminder(wStreak, pStreak) {
+  if (streakReminderShownThisLoad) return;
+  const hour = new Date().getHours();
+  if (hour < 18) return; // only nudge in the evening
+  const todayKey = dayKey(new Date().toISOString());
+  const loggedWeightToday = state.weights.some((w) => dayKey(w.loggedAt) === todayKey);
+  const loggedPhotoToday = state.photos.some((p) => dayKey(p.takenAt) === todayKey);
+  if (loggedWeightToday && loggedPhotoToday) return;
+  streakReminderShownThisLoad = true;
+  const missing = [];
+  if (!loggedWeightToday) missing.push(wStreak + "-day weigh-in streak");
+  if (!loggedPhotoToday) missing.push(pStreak + "-day photo streak");
+  toast("Evening check — don't lose your " + missing.join(" or your ") + " today.");
+}
+
+// 7-day trailing average, keyed to each raw entry's date (so short histories
+// still get a (partial) smoothed line instead of waiting for 7 entries to exist).
+function smoothWeights(weights) {
+  return weights.map((w, i) => {
+    const cutoff = new Date(w.loggedAt); cutoff.setDate(cutoff.getDate() - 6);
+    const window = weights.filter((x, j) => j <= i && new Date(x.loggedAt) >= cutoff);
+    const avg = window.reduce((s, x) => s + x.weight, 0) / window.length;
+    return { loggedAt: w.loggedAt, weight: Math.round(avg * 10) / 10 };
+  });
 }
 
 function renderChart() {
   const svg = $("#weightChart");
   const empty = $("#chartEmpty");
-  const pts = state.weights.map((w) => ({ x: fmtDayShort(w.loggedAt), y: w.weight }));
-  if (pts.length < 2) {
+  const note = $("#trendNote");
+  const raw = state.weights;
+  if (raw.length < 2) {
     svg.setAttribute("hidden", ""); // SVG elements don't reflect the .hidden property
     empty.hidden = false;
+    note.hidden = true;
     return;
   }
+  const source = state.chartMode === "smooth" ? smoothWeights(raw) : raw;
+  const pts = source.map((w) => ({ x: fmtDayShort(w.loggedAt), y: w.weight }));
+
+  // trend note: lbs/week over the visible history, from a simple first-to-last slope
+  const days = Math.max(1, (new Date(raw[raw.length - 1].loggedAt) - new Date(raw[0].loggedAt)) / 86400000);
+  const perWeek = ((raw[raw.length - 1].weight - raw[0].weight) / days) * 7;
+  note.hidden = false;
+  note.innerHTML = "";
+  note.appendChild(document.createTextNode("trend: "));
+  const b = el("b", null, (perWeek <= 0 ? "" : "+") + perWeek.toFixed(1) + " lb/week");
+  note.appendChild(b);
+
   svg.removeAttribute("hidden");
   empty.hidden = true;
   while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -358,6 +446,65 @@ async function logWeight(val) {
     toast("Weight logged");
   } catch (e) { toast("Save failed: " + e.message, true); }
 }
+
+/* ---------- measurements ---------- */
+const MEAS_FIELDS = [
+  { key: "waist", label: "Waist" },
+  { key: "chest", label: "Chest" },
+  { key: "arms", label: "Arms" },
+  { key: "thighs", label: "Thighs" },
+];
+
+async function logMeasurements() {
+  const entry = { loggedAt: new Date().toISOString() };
+  let any = false;
+  MEAS_FIELDS.forEach((f) => {
+    const raw = $("#m_" + f.key).value.trim();
+    if (raw !== "") {
+      const v = parseFloat(raw);
+      if (!isNaN(v)) { entry[f.key] = v; any = true; }
+    }
+  });
+  if (!any) { toast("Enter at least one measurement", true); return; }
+  try {
+    const ref = await db.collection("measurements").add(entry);
+    state.measurements.push({ id: ref.id, ...entry });
+    MEAS_FIELDS.forEach((f) => { $("#m_" + f.key).value = ""; });
+    renderMeasurements();
+    toast("Measurements logged");
+  } catch (e) { toast("Save failed: " + e.message, true); }
+}
+
+function renderMeasurements() {
+  const grid = $("#measGrid");
+  const emptyHint = $("#measEmpty");
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+  let any = false;
+  MEAS_FIELDS.forEach((f) => {
+    const entries = state.measurements.filter((m) => m[f.key] != null);
+    if (!entries.length) return;
+    any = true;
+    const first = entries[0][f.key];
+    const latest = entries[entries.length - 1][f.key];
+    const delta = latest - first;
+    const card = el("div", "meas-card");
+    card.appendChild(el("div", "mlabel", f.label));
+    card.appendChild(el("div", "mnum", latest + " in"));
+    if (entries.length > 1 && delta !== 0) {
+      const dEl = el("div", "mdelta " + (delta < 0 ? "down" : "up"),
+        (delta > 0 ? "+" : "") + delta.toFixed(1) + " in since first log");
+      card.appendChild(dEl);
+    }
+    grid.appendChild(card);
+  });
+  emptyHint.hidden = any;
+}
+
+/* ---------- meals ----------
+   Kimi's "Today's Fuel" card (photo + Maya estimate + manual entry) owns the
+   UI for this. This file just keeps the "meals" collection loaded into
+   state.meals so it's available to computeStreak-style stats, Maya's system
+   prompt, and the data export below — nothing here renders meal UI. */
 
 /* ---------- photos ---------- */
 function compressImage(file, maxDim, quality) {
@@ -522,6 +669,129 @@ async function deleteViewerPhoto() {
 }
 
 /* ---------- coaches ---------- */
+/* ---------- workout history heatmap (reads what finishWorkout() already saves) ---------- */
+const HEATMAP_WEEKS = 18;
+
+function heatLevel(setsTotal) {
+  if (!setsTotal) return 0;
+  if (setsTotal <= 3) return 1;
+  if (setsTotal <= 7) return 2;
+  if (setsTotal <= 12) return 3;
+  return 4;
+}
+
+function renderHeatmap() {
+  const grid = $("#heatmapGrid");
+  const summary = $("#heatmapSummary");
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+  // sum sets per day
+  const byDay = {};
+  state.workouts.forEach((w) => {
+    const k = dayKey(w.startedAt);
+    byDay[k] = byDay[k] || { sets: 0, durationSec: 0, sessions: 0 };
+    byDay[k].sets += w.sets || 0;
+    byDay[k].durationSec += w.durationSec || 0;
+    byDay[k].sessions += 1;
+  });
+
+  const totalDays = HEATMAP_WEEKS * 7;
+  const today = new Date();
+  // align the grid to end on today, oldest day first, columns = weeks (7 rows each)
+  const start = new Date(today);
+  start.setDate(start.getDate() - (totalDays - 1));
+  // pad so the first column starts on a Sunday, matching the 7-row grid
+  const pad = start.getDay();
+  start.setDate(start.getDate() - pad);
+
+  for (let i = 0; i < totalDays + pad; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const k = dayKey(d.toISOString());
+    const inFuture = d > today;
+    const info = byDay[k];
+    const lvl = info ? heatLevel(info.sets) : 0;
+    const cell = el("div", "heat-cell" + (lvl ? " lvl" + lvl : ""));
+    if (inFuture) cell.style.visibility = "hidden";
+    else {
+      cell.title = fmtDayShort(d.toISOString()) + (info ? " — " + info.sessions + " session" + (info.sessions > 1 ? "s" : "") + ", " + info.sets + " sets" : " — rest day");
+      cell.addEventListener("click", () => showHeatmapDay(k, info));
+    }
+    grid.appendChild(cell);
+  }
+
+  const activeDays = Object.keys(byDay).length;
+  const totalSets = Object.values(byDay).reduce((s, v) => s + v.sets, 0);
+  if (!activeDays) {
+    summary.textContent = "No workouts logged yet — finish a session from the timer to see it here.";
+  } else {
+    summary.innerHTML = "";
+    summary.appendChild(document.createTextNode("Last " + HEATMAP_WEEKS + " weeks: "));
+    summary.appendChild(el("b", null, String(activeDays)));
+    summary.appendChild(document.createTextNode(" active days, "));
+    summary.appendChild(el("b", null, String(totalSets)));
+    summary.appendChild(document.createTextNode(" total sets."));
+  }
+}
+
+function showHeatmapDay(k, info) {
+  const detail = $("#heatmapDetail");
+  if (!detail) return;
+  if (state.heatmapSel === k) {
+    // tap the same day again to close it
+    detail.hidden = true;
+    state.heatmapSel = null;
+    return;
+  }
+  state.heatmapSel = k;
+  while (detail.firstChild) detail.removeChild(detail.firstChild);
+  detail.hidden = false;
+  const dateLabel = new Date(k + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  detail.appendChild(el("div", "hd-date", dateLabel));
+  if (!info) {
+    detail.appendChild(el("div", "hd-row", "Rest day — no workout logged."));
+    return;
+  }
+  const mins = Math.round(info.durationSec / 60);
+  detail.appendChild(el("div", "hd-row", info.sessions + " session" + (info.sessions > 1 ? "s" : "") + " · " + info.sets + " sets · " + mins + " min total"));
+}
+
+/* ---------- data export / backup ---------- */
+async function exportAllData() {
+  const btn = $("#exportBtn");
+  const status = $("#exportStatus");
+  btn.disabled = true;
+  status.hidden = false;
+  status.textContent = "Gathering your data…";
+  try {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      profile: state.profile,
+      weights: state.weights,
+      measurements: state.measurements,
+      meals: state.meals,
+      workouts: state.workouts,
+      photos: state.photos.map((p) => ({ id: p.id, label: p.label, note: p.note, takenAt: p.takenAt, imageData: p.imageData })),
+      chats: state.chats,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "gutcheck-backup-" + dayKey(new Date().toISOString()) + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    status.textContent = "Downloaded — includes photos, so the file may be large.";
+  } catch (e) {
+    status.textContent = "Export failed: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function buildCoachPanel(coachId) {
   const meta = COACHES[coachId];
   const panel = $("#panel-" + coachId);
@@ -764,7 +1034,15 @@ function coachSystemPrompt(coachId) {
     "\n- You are not a doctor; for medical red flags, say so briefly and move on." +
     "\n- Remember the conversation history and build on it.";
   if (coachId === "nutrition") {
-    return "You are Maya, an expert sports nutritionist and fat-loss coach." + shared +
+    const todayKey = dayKey(new Date().toISOString());
+    const todayMeals = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
+    const calSoFar = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
+    const proteinSoFar = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
+    const mealLine = todayMeals.length
+      ? "\n\nLOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
+        todayMeals.map((m) => m.name || m.description || m.desc || "a logged meal").join(", ") + ". Use this to say what's left for the day, not just the flat daily target."
+      : "\n\nNothing logged yet today — no need to mention this unless it's relevant.";
+    return "You are Maya, an expert sports nutritionist and fat-loss coach." + shared + mealLine +
       "\n- Stay within the client's calorie and protein targets unless asked otherwise." +
       "\n- When suggesting meals, include rough calories and protein per item." +
       "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make." +
@@ -1520,7 +1798,11 @@ async function finishWorkout() {
     sets: sets,
   };
   try {
-    if (db) await db.collection("workouts").add(entry);
+    if (db) {
+      const ref = await db.collection("workouts").add(entry);
+      state.workouts.push({ id: ref.id, ...entry });
+      renderHeatmap();
+    }
     toast("Workout logged — " + Math.max(1, Math.round(durSec / 60)) + " min, " + sets + " sets 💪");
   } catch (e) {
     toast("Workout done but save failed: " + e.message, true);
@@ -1827,6 +2109,16 @@ function wireEvents() {
     e.preventDefault();
     logWeight($("#weightInput").value);
   });
+  $("#chartToggle").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-mode]");
+    if (!btn) return;
+    state.chartMode = btn.dataset.mode;
+    $("#chartToggle").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
+    renderChart();
+  });
+  $("#measForm").addEventListener("submit", (e) => e.preventDefault());
+  $("#logMeasBtn").addEventListener("click", logMeasurements);
+  $("#exportBtn").addEventListener("click", exportAllData);
   $("#photoBtn").addEventListener("click", () => $("#photoFile").click());
   $("#photoFile").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
@@ -1894,6 +2186,9 @@ async function boot() {
       loadProfile(),
       loadWeights(),
       loadPhotos(),
+      loadMeasurements(),
+      loadMeals(),
+      loadWorkouts(),
       loadChat("nutrition"),
       loadChat("gym"),
       loadAvatars(),
@@ -1903,6 +2198,7 @@ async function boot() {
   }
   renderDashboard();
   renderPhotos();
+  renderHeatmap();
   renderChat("nutrition");
   renderChat("gym");
   renderSettings();
