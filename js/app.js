@@ -597,9 +597,11 @@ async function estimateMealWithMaya() {
     }
     content.push({
       type: "text",
-      text: "Estimate calories and protein for this meal" + (desc ? ": " + desc : " from the photo") +
-        ". Respond with ONLY compact JSON, no markdown, no explanation: " +
-        "{\"description\":\"short 3-6 word name for this meal\",\"calories\":number,\"protein\":number}",
+      text: "Look at this" + (desc ? " (client says: \"" + desc + "\")" : "") + " and decide if it's an actual meal or drink someone is eating/drinking. " +
+        "Respond with ONLY compact JSON, no markdown, no explanation: " +
+        "{\"is_food\":boolean,\"description\":\"short 3-6 word name for what it is\",\"calories\":number,\"protein\":number}. " +
+        "is_food is false for things like people, animals, objects, screenshots, or anything that isn't food/drink being consumed. " +
+        "If is_food is false, still fill description with what you actually see, and set calories/protein to 0.",
     });
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -623,9 +625,16 @@ async function estimateMealWithMaya() {
     const raw = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     const cleaned = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
+    const cal = Math.round(Number(parsed.calories));
+    const pro = Math.round(Number(parsed.protein));
+    const looksLikeFood = parsed.is_food !== false && cal > 0;
+    if (!looksLikeFood) {
+      toast("That doesn't look like a meal (" + esc(parsed.description || "unclear") + ") — try a clearer photo, or use \"Enter numbers manually\"", true);
+      return;
+    }
     const est = "Maya's estimate — " + esc(parsed.description || desc || "meal") + ": " +
-      Math.round(parsed.calories) + " kcal, " + Math.round(parsed.protein) + "g protein. Adjust below if needed.";
-    openMealConfirm(est, Math.round(parsed.calories) || "", Math.round(parsed.protein) || "");
+      cal + " kcal, " + pro + "g protein. Adjust below if needed.";
+    openMealConfirm(est, cal, pro);
   } catch (e) {
     toast("Estimate failed: " + e.message + " — you can still enter numbers manually", true);
   } finally {
@@ -638,6 +647,10 @@ async function saveMealEntry() {
   const cal = parseFloat($("#m_cal").value);
   const protein = parseFloat($("#m_pro").value);
   if (isNaN(cal) && isNaN(protein)) { toast("Enter calories or protein", true); return; }
+  if ((isNaN(cal) || cal === 0) && (isNaN(protein) || protein === 0)) {
+    toast("0 kcal / 0g isn't a real meal — enter actual numbers, or try a different photo", true);
+    return;
+  }
   const desc = $("#mealDesc").value.trim();
   const entry = {
     loggedAt: new Date().toISOString(),
