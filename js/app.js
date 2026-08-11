@@ -608,10 +608,9 @@ function buildCoachPanel(coachId) {
   const jb = el("button", "jump-fab", "↓");
   jb.type = "button";
   jb.id = "jumpInput-" + coachId;
-  jb.title = "Jump to the chat box";
+  jb.title = "Jump to the bottom";
   jb.addEventListener("click", () => {
-    const input = $("#chatInput-" + coachId);
-    if (input) input.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
   });
   jumps.appendChild(jt);
   jumps.appendChild(jb);
@@ -619,14 +618,19 @@ function buildCoachPanel(coachId) {
 }
 
 function setupJumpBtns() {
-  window.addEventListener("scroll", () => {
+  const sync = () => {
+    const doc = document.documentElement;
+    const atBottom = window.scrollY + window.innerHeight >= doc.scrollHeight - 60;
     ["nutrition", "gym"].forEach((id) => {
       const j = $("#jumpBtns-" + id);
       const panel = $("#panel-" + id);
       if (!j || !panel) return;
-      j.hidden = panel.hidden || window.scrollY < 320;
+      // only show while actually mid-scroll — hidden at the very top and the very bottom
+      j.hidden = panel.hidden || window.scrollY < 320 || atBottom;
     });
-  }, { passive: true });
+  };
+  window.addEventListener("scroll", sync, { passive: true });
+  window.addEventListener("resize", sync);
 }
 
 function scrollChatBottom(coachId, smooth) {
@@ -752,6 +756,9 @@ function coachSystemPrompt(coachId) {
     "\n- Daily targets: " + p.calories + " calories, " + p.protein + "g protein" +
     "\n- Background: " + p.context +
     "\n\nRULES:\n- Be direct, warm, and practical. Short paragraphs. No fluff." +
+    "\n- PLAIN TEXT ONLY: never use asterisks, markdown, em-dashes as decoration, bullet symbols, or role-play actions (no *smiles*, no **bold**). " +
+    "Your replies are read aloud by a text-to-speech voice — write exactly how a real human coach would speak. " +
+    "Lists are fine as short separate lines starting with a number, like \"1. \"." +
     "\n- Give specific numbers, portions, sets, and reps — never vague advice." +
     "\n- The client can attach photos (meals, physique, equipment) — comment specifically on what you see." +
     "\n- You are not a doctor; for medical red flags, say so briefly and move on." +
@@ -923,6 +930,26 @@ function stopSpeaking() {
   }
 }
 
+/* strip markdown/asterisks so TTS reads like a human, not a parser */
+function ttsClean(text) {
+  return String(text || "")
+    .replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/`{1,3}[^`]*`{1,3}/g, " ")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/^\s*(\d+)\.\s+/gm, "$1, ")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_~#>]/g, "")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, ". ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 async function speakText(coachId, text, btn) {
   // tapping the playing button stops playback
   if (state.voice.speakBtn === btn && state.voice.audio) {
@@ -943,7 +970,7 @@ async function speakText(coachId, text, btn) {
     const voice = COACH_VOICES[coachId] || COACH_VOICES.nutrition;
     // Deepgram speak accepts ~2000 chars per call — split long replies on sentence boundaries
     const chunks = [];
-    let rest = text;
+    let rest = ttsClean(text);
     while (rest.length > 1800) {
       let cut = Math.max(rest.lastIndexOf(". ", 1800), rest.lastIndexOf("! ", 1800), rest.lastIndexOf("? ", 1800), rest.lastIndexOf("\n", 1800));
       if (cut < 400) cut = 1800;
