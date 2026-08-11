@@ -143,7 +143,8 @@ const state = {
   meals: [],        // {id, loggedAt, name, calories, protein, source}
   workouts: [],     // {id, startedAt, finishedAt, durationSec, sets}
   chartMode: "raw", // "raw" | "smooth"
-  heatmapSel: null, // dayKey of selected heatmap cell
+  heatmapSel: null, // dayKey of selected workout heatmap cell
+  foodHeatmapSel: null, // dayKey of selected food log heatmap cell
   chats: { nutrition: [], gym: [] }, // {id, role, content, at}
   sending: { nutrition: false, gym: false },
   attach: { nutrition: null, gym: null }, // pending photo to send (data URL)
@@ -333,6 +334,7 @@ function renderDashboard() {
   renderWeightLog();
   renderMeasurements();
   renderMealTotals();
+  renderFoodHeatmap();
   maybeShowStreakReminder(wStreak, pStreak);
 }
 
@@ -685,6 +687,7 @@ async function saveMealEntry() {
     renderMealPhotoPrev();
     closeMealConfirm();
     renderMealTotals();
+    renderFoodHeatmap();
     toast("Meal logged");
   } catch (e) {
     toast("Save failed: " + e.message, true);
@@ -698,6 +701,7 @@ async function deleteMeal(id) {
     await db.collection(ucol("meals")).doc(id).delete();
     state.meals = state.meals.filter((m) => m.id !== id);
     renderMealTotals();
+    renderFoodHeatmap();
     toast("Entry deleted");
   } catch (e) { toast("Delete failed: " + e.message, true); }
 }
@@ -990,6 +994,104 @@ function showHeatmapDay(k, info) {
   }
   const mins = Math.round(info.durationSec / 60);
   detail.appendChild(el("div", "hd-row", info.sessions + " session" + (info.sessions > 1 ? "s" : "") + " · " + info.sets + " sets · " + mins + " min total"));
+}
+
+/* ---------- food log history heatmap (past days: hit/miss calorie + protein targets) ---------- */
+function renderFoodHeatmap() {
+  const grid = $("#foodHeatmapGrid");
+  const summary = $("#foodHeatmapSummary");
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+  const calGoal = parseFloat(state.profile.calories) || 0;
+  const proGoal = parseFloat(state.profile.protein) || 0;
+
+  // sum calories/protein per day, plus keep the individual meals for the detail view
+  const byDay = {};
+  state.meals.forEach((m) => {
+    const k = dayKey(m.loggedAt);
+    byDay[k] = byDay[k] || { calories: 0, protein: 0, meals: [] };
+    byDay[k].calories += m.calories || 0;
+    byDay[k].protein += m.protein || 0;
+    byDay[k].meals.push(m);
+  });
+
+  const totalDays = HEATMAP_WEEKS * 7;
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - (totalDays - 1));
+  const pad = start.getDay();
+  start.setDate(start.getDate() - pad);
+
+  let goodDays = 0, partialDays = 0, offDays = 0;
+  for (let i = 0; i < totalDays + pad; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const k = dayKey(d.toISOString());
+    const inFuture = d > today;
+    const info = byDay[k];
+
+    let cls = "";
+    if (info && calGoal && proGoal) {
+      const underCal = info.calories <= calGoal;
+      const overProtein = info.protein >= proGoal;
+      if (underCal && overProtein) { cls = " food-good"; goodDays++; }
+      else if (underCal || overProtein) { cls = " food-partial"; partialDays++; }
+      else { cls = " food-off"; offDays++; }
+    }
+    const cell = el("div", "heat-cell" + cls);
+    if (inFuture) cell.style.visibility = "hidden";
+    else {
+      cell.title = fmtDayShort(d.toISOString()) + (info
+        ? " — " + Math.round(info.calories) + " kcal, " + Math.round(info.protein) + "g protein"
+        : " — nothing logged");
+      cell.addEventListener("click", () => showFoodHeatmapDay(k, info, calGoal, proGoal));
+    }
+    grid.appendChild(cell);
+  }
+
+  if (!calGoal || !proGoal) {
+    summary.textContent = "Set your calorie and protein targets in Settings to see hit/miss coloring.";
+  } else if (!goodDays && !partialDays && !offDays) {
+    summary.textContent = "No meals logged yet — use Today's fuel on Home to start tracking.";
+  } else {
+    summary.innerHTML = "";
+    summary.appendChild(document.createTextNode("Last " + HEATMAP_WEEKS + " weeks: "));
+    summary.appendChild(el("b", null, String(goodDays)));
+    summary.appendChild(document.createTextNode(" days hit both, "));
+    summary.appendChild(el("b", null, String(partialDays)));
+    summary.appendChild(document.createTextNode(" hit one, "));
+    summary.appendChild(el("b", null, String(offDays)));
+    summary.appendChild(document.createTextNode(" missed both."));
+  }
+}
+
+function showFoodHeatmapDay(k, info, calGoal, proGoal) {
+  const detail = $("#foodHeatmapDetail");
+  if (!detail) return;
+  if (state.foodHeatmapSel === k) {
+    detail.hidden = true;
+    state.foodHeatmapSel = null;
+    return;
+  }
+  state.foodHeatmapSel = k;
+  while (detail.firstChild) detail.removeChild(detail.firstChild);
+  detail.hidden = false;
+  const dateLabel = new Date(k + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  detail.appendChild(el("div", "hd-date", dateLabel));
+  if (!info) {
+    detail.appendChild(el("div", "hd-row", "Nothing logged this day."));
+    return;
+  }
+  const calLine = Math.round(info.calories) + " kcal" + (calGoal ? " / " + calGoal + " goal" + (info.calories <= calGoal ? " ✓" : " over") : "");
+  const proLine = Math.round(info.protein) + "g protein" + (proGoal ? " / " + proGoal + "g goal" + (info.protein >= proGoal ? " ✓" : " short") : "");
+  detail.appendChild(el("div", "hd-row", calLine + " · " + proLine));
+  info.meals.slice().reverse().forEach((m) => {
+    const row = el("div", "wrow");
+    row.appendChild(el("span", null, (m.description || "Meal") + (m.source === "photo" ? " 📷" : m.source === "maya" ? " ✨" : "")));
+    row.appendChild(el("span", null, Math.round(m.calories || 0) + " kcal · " + Math.round(m.protein || 0) + "g"));
+    detail.appendChild(row);
+  });
 }
 
 /* ---------- data export / backup ---------- */
@@ -1347,6 +1449,7 @@ async function callClaude(coachId) {
   if (data.mealLogged) {
     await loadMeals();
     renderMealTotals();
+    renderFoodHeatmap();
   }
   if (!data.text) throw new Error("Coach returned an empty response");
   return data.text;
@@ -2692,6 +2795,7 @@ async function startApp() {
   renderDashboard();
   renderPhotos();
   renderHeatmap();
+  renderFoodHeatmap();
   renderChat("nutrition");
   renderChat("gym");
   renderSettings();

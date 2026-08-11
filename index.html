@@ -277,7 +277,22 @@
   </section>
 
   <!-- ============ COACHES ============ -->
-  <section class="tab-panel" id="panel-nutrition" hidden data-coach="nutrition"></section>
+  <section class="tab-panel" id="panel-nutrition" hidden data-coach="nutrition">
+    <div class="card" id="foodLogCard">
+      <h2 class="card-title">🍽 Food log</h2>
+      <div class="heatmap-wrap">
+        <div class="heatmap-grid" id="foodHeatmapGrid"></div>
+      </div>
+      <div class="heatmap-legend wrap">
+        <span><div class="heat-cell"></div> no data</span>
+        <span><div class="heat-cell food-off"></div> missed both</span>
+        <span><div class="heat-cell food-partial"></div> hit one</span>
+        <span><div class="heat-cell food-good"></div> hit both</span>
+      </div>
+      <div class="heatmap-summary" id="foodHeatmapSummary"></div>
+      <div class="heatmap-day-detail" id="foodHeatmapDetail" hidden></div>
+    </div>
+  </section>
   <section class="tab-panel" id="panel-gym" hidden data-coach="gym">
     <div class="card" id="heatmapCard">
       <h2 class="card-title">🏋️ Workout history</h2>

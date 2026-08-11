@@ -143,7 +143,12 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 .heat-cell.lvl2 { background: #5a7327; border-color: #5a7327; }
 .heat-cell.lvl3 { background: #7fa332; border-color: #7fa332; }
 .heat-cell.lvl4 { background: var(--lime); border-color: var(--lime); }
+.heat-cell.food-off { background: #5a2323; border-color: #5a2323; }
+.heat-cell.food-partial { background: #7a6a1f; border-color: #7a6a1f; }
+.heat-cell.food-good { background: var(--lime); border-color: var(--lime); }
 .heatmap-legend { display: flex; align-items: center; gap: 5px; justify-content: flex-end; margin-top: 8px; font-size: 10.5px; color: var(--muted); }
+.heatmap-legend.wrap { flex-wrap: wrap; justify-content: flex-start; row-gap: 6px; }
+.heatmap-legend.wrap span { margin-right: 10px; display: inline-flex; align-items: center; gap: 5px; }
 .heatmap-legend .heat-cell { cursor: default; }
 .heatmap-summary { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 .heatmap-summary b { color: var(--text); }
