@@ -97,10 +97,45 @@ const COACHES = {
   },
 };
 
+/* ---------- coach identity (gender-selectable) ---------- */
+const COACH_NAMES = {
+  nutrition: { female: { name: "Coach Maya", short: "Maya" }, male: { name: "Coach Marcus", short: "Marcus" } },
+  gym: { female: { name: "Coach Vanessa", short: "Vanessa" }, male: { name: "Coach Dre", short: "Dre" } },
+};
+// Keep the original female greetings as templates; names get swapped on apply.
+COACHES.nutrition._greetingF = COACHES.nutrition.greeting;
+COACHES.gym._greetingF = COACHES.gym.greeting;
+
+function coachGender(coachId) {
+  return (state.profile.coachGenders && state.profile.coachGenders[coachId]) || "female";
+}
+
+function applyCoachGenders() {
+  ["nutrition", "gym"].forEach((c) => {
+    const pick = COACH_NAMES[c][coachGender(c)] || COACH_NAMES[c].female;
+    const femShort = COACH_NAMES[c].female.short;
+    COACHES[c].name = pick.name;
+    COACHES[c].short = pick.short;
+    COACHES[c].greeting = COACHES[c]._greetingF.split(femShort).join(pick.short);
+  });
+}
+
+function rebuildCoachPanels() {
+  ["nutrition", "gym"].forEach((c) => {
+    const panel = $("#panel-" + c);
+    if (!panel) return;
+    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    buildCoachPanel(c);
+    renderChat(c);
+  });
+  applyAvatars();
+}
+
 const state = {
   tab: "dashboard",
   uid: null,        // Firebase Auth uid — scopes every Firestore path
   userEmail: null,
+  hasProfileDoc: false, // false = brand-new account (no profile written yet)
   profile: { ...DEFAULT_PROFILE },
   weights: [], // {id, weight, loggedAt}
   photos: [],  // {id, imageData, label, note, takenAt}
@@ -142,6 +177,7 @@ async function fsGet(col, orderBy, dir) {
 async function loadProfile() {
   try {
     const doc = await db.collection(ucol("settings")).doc("profile").get();
+    state.hasProfileDoc = doc.exists;
     if (doc.exists) state.profile = { ...DEFAULT_PROFILE, ...doc.data() };
   } catch (e) {
     console.warn("profile load failed:", e);
@@ -1248,14 +1284,16 @@ function coachSystemParts(coachId) {
       ? "LOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
         todayMeals.map((m) => m.name || m.description || m.desc || "a logged meal").join(", ") + ". Use this to say what's left for the day, not just the flat daily target."
       : "Nothing logged yet today — no need to mention this unless it's relevant.";
+    const me = COACHES.nutrition.short;
+    const other = COACHES.gym.short;
     return {
-      stable: "You are Maya, an expert sports nutritionist and fat-loss coach." + shared +
+      stable: "You are " + me + ", an expert sports nutritionist and fat-loss coach." + shared +
         "\n- Stay within the client's calorie and protein targets unless asked otherwise." +
         "\n- When suggesting meals, include rough calories and protein per item." +
-        "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make." +
+        "\n- Favor simple, cheap, fast home cooking the client can actually make." +
         "\n- STAY IN YOUR LANE: your domain is food — calories, protein, meals, groceries, eating out, cravings, hydration. " +
-        "You work alongside Vanessa, the strength coach, who lives in the Coach tab. " +
-        "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Vanessa's department — ask her in the Coach tab.\" " +
+        "You work alongside " + other + ", the strength coach, who lives in the Coach tab. " +
+        "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's " + other + "'s department — ask " + other + " in the Coach tab.\" " +
         "Never write out workout routines, sets, or reps." +
         "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
         "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
@@ -1264,14 +1302,19 @@ function coachSystemParts(coachId) {
       dynamic,
     };
   }
+  const meG = COACHES.gym.short;
+  const otherG = COACHES.nutrition.short;
+  const gymDesc = coachGender("gym") === "male"
+    ? "You are " + meG + ", a sharp, encouraging strength coach specializing in home training and training around lower-back issues."
+    : "You are " + meG + ", a sharp, encouraging female strength coach specializing in home training and training around lower-back issues.";
   return {
-    stable: "You are Vanessa, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
-      "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
-      "\n- Protect the lower back: coach brace/neutral spine, swap risky movements proactively." +
-      "\n- Account for mono/EBV history: moderate intensity, no grind-to-failure every session." +
+    stable: gymDesc + shared +
+      "\n- All programming must match the client's equipment and injury notes in the profile." +
+      "\n- Protect the lower back (or any noted limitation): coach brace/neutral spine, swap risky movements proactively." +
+      "\n- Respect the client's health notes: moderate intensity when recovery is a concern, no grind-to-failure every session." +
       "\n- STAY IN YOUR LANE: your domain is training — workouts, form, progression, exercise swaps, steps, recovery. " +
-      "You work alongside Maya, the nutritionist, who lives in the Nutritionist tab. " +
-      "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's Maya's department — ask her in the Nutritionist tab.\" " +
+      "You work alongside " + otherG + ", the nutritionist, who lives in the Nutritionist tab. " +
+      "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's " + otherG + "'s department — ask " + otherG + " in the Nutritionist tab.\" " +
       "Never write out meal plans or calorie breakdowns.",
     dynamic: "",
   };
@@ -1456,7 +1499,7 @@ async function speakText(coachId, text, btn) {
     if (rest) chunks.push(rest);
 
     for (const chunk of chunks) {
-      const res = await fns.httpsCallable("voiceCall")({ op: "tts", text: chunk, coachId });
+      const res = await fns.httpsCallable("voiceCall")({ op: "tts", text: chunk, coachId, gender: coachGender(coachId) });
       const d = res.data || {};
       if (!d.audioBase64) throw new Error("Voice server returned no audio");
       const audioBlob = await base64ToBlob(d.audioBase64, d.mime);
@@ -1490,8 +1533,13 @@ async function loadAvatars() {
     const doc = await db.collection(ucol("settings")).doc("avatars").get();
     if (doc.exists) {
       const d = doc.data();
-      if (d.maya) { AVATARS.nutrition = d.maya; localStorage.setItem(avatarCacheKey("nutrition"), d.maya); }
-      if (d.dre) { AVATARS.gym = d.dre; localStorage.setItem(avatarCacheKey("gym"), d.dre); }
+      const nKey = coachGender("nutrition") === "male" ? "marcus" : "maya";
+      const gKey = coachGender("gym") === "male" ? "dre" : "vanessa";
+      // fall back across genders so an older avatar still shows until regenerated
+      const nAv = d[nKey] || d.maya || d.marcus;
+      const gAv = d[gKey] || d.vanessa || d.dre;
+      if (nAv) { AVATARS.nutrition = nAv; localStorage.setItem(avatarCacheKey("nutrition"), nAv); }
+      if (gAv) { AVATARS.gym = gAv; localStorage.setItem(avatarCacheKey("gym"), gAv); }
       applyAvatars();
     }
   } catch (e) { console.warn("avatar load failed:", e); }
@@ -1557,17 +1605,22 @@ function downscaleDataUrl(dataUrl, maxDim, quality) {
 
 const GROK_PROMPTS = {
   maya: "Professional headshot portrait of an attractive woman in her late 20s, a friendly registered dietitian and nutritionist, warm genuine smile, sage-green casual blouse, soft studio lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
-  dre: "Professional headshot portrait of an attractive athletic woman in her late 20s, a confident personal trainer, high sporty ponytail, black fitted athletic tank top, determined friendly smirk, soft gym lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
+  marcus: "Professional headshot portrait of an attractive man in his late 20s, a friendly registered dietitian and nutritionist, short tidy hair, warm genuine smile, sage-green casual button-up shirt, soft studio lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
+  vanessa: "Professional headshot portrait of an attractive athletic woman in her late 20s, a confident personal trainer, high sporty ponytail, black fitted athletic tank top, determined friendly smirk, soft gym lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
+  dre: "Professional headshot portrait of an attractive athletic man in his late 20s, a confident personal trainer, short fade haircut, black fitted athletic t-shirt, determined friendly smirk, soft gym lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
 };
 
 async function regenerateAvatars() {
   const btn = $("#regenAvatars");
   btn.disabled = true;
   try {
-    const jobs = [["maya", "nutrition"], ["dre", "gym"]];
+    const jobs = [
+      [coachGender("nutrition") === "male" ? "marcus" : "maya", "nutrition"],
+      [coachGender("gym") === "male" ? "dre" : "vanessa", "gym"],
+    ];
     for (let i = 0; i < jobs.length; i++) {
       const who = jobs[i][0], coachId = jobs[i][1];
-      btn.textContent = "⏳ Generating " + (who === "maya" ? "Maya" : "Vanessa") + "… (~30s)";
+      btn.textContent = "⏳ Generating " + COACHES[coachId].short + "… (~30s)";
       const res = await fns.httpsCallable("avatarCall")({ prompt: GROK_PROMPTS[who] });
       const b64 = res.data && res.data.imageBase64;
       if (!b64) throw new Error("Avatar server returned no image data");
@@ -2186,6 +2239,9 @@ const PROFILE_FIELDS = ["height", "age", "startWeight", "goalWeight", "calories"
 
 function renderSettings() {
   PROFILE_FIELDS.forEach((f) => { $("#s_" + f).value = state.profile[f] || ""; });
+  const g = state.profile.coachGenders || {};
+  $("#s_genderNutrition").value = g.nutrition || "female";
+  $("#s_genderGym").value = g.gym || "female";
   const acct = $("#accountEmail");
   if (acct) acct.textContent = state.userEmail || "unknown";
   renderAvatarPreview();
@@ -2193,11 +2249,131 @@ function renderSettings() {
 
 async function onSaveProfile() {
   PROFILE_FIELDS.forEach((f) => { state.profile[f] = $("#s_" + f).value.trim(); });
+  state.profile.coachGenders = {
+    nutrition: $("#s_genderNutrition").value === "male" ? "male" : "female",
+    gym: $("#s_genderGym").value === "male" ? "male" : "female",
+  };
+  state.profile.onboarded = true;
   try {
     await saveProfile();
+    applyCoachGenders();
+    rebuildCoachPanels();
     renderDashboard();
     toast("Profile saved — your coaches will use it");
   } catch (e) { toast("Save failed: " + e.message, true); }
+}
+
+/* ---------- first-run guided setup ---------- */
+function parseHeightInches(h) {
+  const m = String(h || "").match(/(\d+)\s*'\s*(\d+)?/);
+  if (m) return parseInt(m[1], 10) * 12 + (parseInt(m[2] || "0", 10) || 0);
+  const cm = parseFloat(h);
+  if (!isNaN(cm) && cm > 100) return cm / 2.54; // they typed centimeters
+  return 0;
+}
+
+// Mifflin-St Jeor → TDEE → goal adjustment; protein ≈ 0.9 g per lb of goal weight.
+function obAutoTargets() {
+  const inches = parseHeightInches($("#ob_height").value);
+  const age = parseFloat($("#ob_age").value);
+  const wt = parseFloat($("#ob_startWeight").value);
+  const goalWt = parseFloat($("#ob_goalWeight").value) || wt;
+  if (!inches || !age || !wt) return;
+  const kg = wt * 0.453592;
+  const cm = inches * 2.54;
+  const bmr = 10 * kg + 6.25 * cm - 5 * age + ($("#ob_sex").value === "male" ? 5 : -161);
+  const tdee = bmr * (parseFloat($("#ob_activity").value) || 1.45);
+  const goal = $("#ob_goal").value;
+  const adj = goal === "lose" ? -500 : goal === "gain" ? 250 : 0;
+  const floor = $("#ob_sex").value === "male" ? 1500 : 1200;
+  const cal = Math.max(floor, Math.round((tdee + adj) / 10) * 10);
+  const pro = Math.max(80, Math.round(goalWt * 0.9));
+  $("#ob_calories").value = cal;
+  $("#ob_protein").value = pro;
+}
+
+function openOnboarding() {
+  const p = state.profile;
+  const existing = state.hasProfileDoc; // Ethan (migrated) pre-fills; brand-new users start clean
+  $("#ob_height").value = existing ? (p.height || "") : "";
+  $("#ob_age").value = existing ? (p.age || "") : "";
+  $("#ob_startWeight").value = existing ? (p.startWeight || "") : "";
+  $("#ob_goalWeight").value = existing ? (p.goalWeight || "") : "";
+  $("#ob_sex").value = p.sex || "male";
+  $("#ob_goal").value = p.mainGoal || "lose";
+  $("#ob_days").value = p.trainingDays || "";
+  $("#ob_equipment").value = p.equipment || "home";
+  $("#ob_injuries").value = "";
+  $("#ob_diet").value = "";
+  $("#ob_custom").value = existing ? (p.context || "") : "";
+  const g = p.coachGenders || {};
+  $("#ob_genderNutrition").value = g.nutrition || "female";
+  $("#ob_genderGym").value = g.gym || "female";
+  $("#ob_calories").value = existing ? (p.calories || "") : "";
+  $("#ob_protein").value = existing ? (p.protein || "") : "";
+  $("#onboardGate").hidden = false;
+}
+
+async function saveOnboarding() {
+  const btn = $("#onboardSave");
+  const height = $("#ob_height").value.trim();
+  const age = $("#ob_age").value.trim();
+  const startWeight = $("#ob_startWeight").value.trim();
+  const goalWeight = $("#ob_goalWeight").value.trim();
+  const calories = $("#ob_calories").value.trim();
+  const protein = $("#ob_protein").value.trim();
+  if (!height || !age || !startWeight || !goalWeight || !calories || !protein) {
+    toast("Fill in height, age, weights, and targets (tap any field above to auto-calc)", true);
+    return;
+  }
+  const actLabel = { "1.3": "mostly sedentary", "1.45": "moderately active", "1.6": "very active" }[$("#ob_activity").value] || "moderately active";
+  const goalLabel = { lose: "lose fat", maintain: "maintain weight", gain: "build muscle" }[$("#ob_goal").value];
+  const equipLabel = { home: "at home with minimal equipment", gym: "at a full gym", both: "a mix of home and gym" }[$("#ob_equipment").value];
+  const days = $("#ob_days").value.trim();
+  const parts = [];
+  parts.push(
+    ($("#ob_sex").value === "male" ? "Male" : "Female") + ", " + age + ", " + height + ". " +
+    "Currently " + startWeight + " lbs, goal " + goalWeight + " lbs — main goal: " + goalLabel + ". " +
+    "Trains " + (days || "a few") + " days/week " + equipLabel + ". Daily life: " + actLabel + "."
+  );
+  const injuries = $("#ob_injuries").value.trim();
+  if (injuries) parts.push("Injuries / health notes: " + injuries);
+  const diet = $("#ob_diet").value.trim();
+  if (diet) parts.push("Food preferences / restrictions: " + diet);
+  const custom = $("#ob_custom").value.trim();
+  if (custom) parts.push(custom);
+
+  btn.disabled = true;
+  try {
+    state.profile.height = height;
+    state.profile.age = age;
+    state.profile.startWeight = startWeight;
+    state.profile.goalWeight = goalWeight;
+    state.profile.calories = calories;
+    state.profile.protein = protein;
+    state.profile.sex = $("#ob_sex").value;
+    state.profile.mainGoal = $("#ob_goal").value;
+    state.profile.trainingDays = days;
+    state.profile.equipment = $("#ob_equipment").value;
+    state.profile.coachGenders = {
+      nutrition: $("#ob_genderNutrition").value === "male" ? "male" : "female",
+      gym: $("#ob_genderGym").value === "male" ? "male" : "female",
+    };
+    state.profile.context = parts.join(" ");
+    state.profile.onboarded = true;
+    await saveProfile();
+    state.hasProfileDoc = true;
+    applyCoachGenders();
+    rebuildCoachPanels();
+    renderDashboard();
+    renderSettings();
+    $("#onboardGate").hidden = true;
+    toast("Setup saved — meet " + COACHES.nutrition.short + " and " + COACHES.gym.short + "!");
+  } catch (e) {
+    toast("Save failed: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 /* ---------- auth gate ---------- */
@@ -2404,6 +2580,12 @@ function wireEvents() {
   $("#saveProfile").addEventListener("click", onSaveProfile);
   $("#signOutBtn").addEventListener("click", signOut);
   $("#googleSignInBtn").addEventListener("click", signInWithGoogle);
+  $("#onboardSave").addEventListener("click", saveOnboarding);
+  $("#redoOnboard").addEventListener("click", openOnboarding);
+  ["ob_height", "ob_age", "ob_startWeight", "ob_goalWeight", "ob_sex", "ob_goal", "ob_activity"].forEach((id) => {
+    $("#" + id).addEventListener("input", obAutoTargets);
+    $("#" + id).addEventListener("change", obAutoTargets);
+  });
   $("#regenAvatars").addEventListener("click", regenerateAvatars);
   $("#settingsBtn").addEventListener("click", () => go("settings"));
   $("#fsToggle").addEventListener("click", toggleFullscreen);
@@ -2479,8 +2661,10 @@ async function boot() {
 
 async function startApp() {
   try {
+    await loadProfile(); // first — coach genders and onboarding depend on it
+    applyCoachGenders();
+    rebuildCoachPanels();
     await Promise.all([
-      loadProfile(),
       loadWeights(),
       loadPhotos(),
       loadMeasurements(),
@@ -2504,6 +2688,8 @@ async function startApp() {
   renderChat("nutrition");
   renderChat("gym");
   renderSettings();
+  // Brand-new accounts (and Ethan post-migration, once) get the guided setup.
+  if (!state.hasProfileDoc || !state.profile.onboarded) openOnboarding();
 }
 
 document.addEventListener("DOMContentLoaded", boot);

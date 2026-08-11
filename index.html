@@ -36,6 +36,75 @@
   </div>
 </div>
 
+<div id="onboardGate" class="auth-gate" hidden>
+  <div class="onboard-card card">
+    <h2 class="card-title">🎯 Set up your coaches</h2>
+    <p class="sub left">A few quick answers — your nutritionist and trainer tailor everything to this. You can change any of it later in Settings.</p>
+
+    <div class="form-grid">
+      <label>Height<input id="ob_height" placeholder="e.g. 5'10&quot;"></label>
+      <label>Age<input id="ob_age" inputmode="numeric"></label>
+      <label>Current weight (lbs)<input id="ob_startWeight" inputmode="decimal"></label>
+      <label>Goal weight (lbs)<input id="ob_goalWeight" inputmode="decimal"></label>
+      <label>Sex
+        <select id="ob_sex"><option value="male">Male</option><option value="female">Female</option></select>
+      </label>
+      <label>Main goal
+        <select id="ob_goal">
+          <option value="lose">Lose fat</option>
+          <option value="maintain">Maintain</option>
+          <option value="gain">Build muscle</option>
+        </select>
+      </label>
+      <label>Activity level
+        <select id="ob_activity">
+          <option value="1.3">Mostly sitting</option>
+          <option value="1.45" selected>Moderately active</option>
+          <option value="1.6">Very active</option>
+        </select>
+      </label>
+      <label>Training days / week<input id="ob_days" inputmode="numeric" placeholder="e.g. 3"></label>
+      <label>Where do you train?
+        <select id="ob_equipment">
+          <option value="home">At home (minimal equipment)</option>
+          <option value="gym">Full gym</option>
+          <option value="both">Mix of both</option>
+        </select>
+      </label>
+      <label>Nutritionist
+        <select id="ob_genderNutrition">
+          <option value="female">Maya (female)</option>
+          <option value="male">Marcus (male)</option>
+        </select>
+      </label>
+      <label>Trainer
+        <select id="ob_genderGym">
+          <option value="female">Vanessa (female)</option>
+          <option value="male">Dre (male)</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="full">Injuries, limitations, health notes
+      <textarea id="ob_injuries" rows="2" placeholder="e.g. lower-back issues — avoid heavy spinal loading"></textarea>
+    </label>
+    <label class="full">Food preferences / restrictions
+      <textarea id="ob_diet" rows="2" placeholder="e.g. no seafood, vegetarian weekdays, nut allergy"></textarea>
+    </label>
+    <label class="full">Anything else your coaches should know
+      <textarea id="ob_custom" rows="3" placeholder="Schedule, stress, sleep, kids, motivation — anything."></textarea>
+    </label>
+
+    <div class="form-grid">
+      <label>Daily calories<input id="ob_calories" inputmode="numeric"></label>
+      <label>Daily protein (g)<input id="ob_protein" inputmode="numeric"></label>
+    </div>
+    <p class="hint left">Targets auto-calculated from your answers — tweak them if you already know your numbers.</p>
+
+    <button class="btn big" id="onboardSave">Save &amp; meet my coaches</button>
+  </div>
+</div>
+
 <header class="topbar">
   <button class="brand" data-go="dashboard">
     <span class="brand-mark">💪</span>
@@ -243,8 +312,23 @@
       <label class="full">Coach context
         <textarea id="s_context" rows="5"></textarea>
       </label>
-      <p class="hint left">Injuries, schedule, equipment, preferences — anything the coaches should always consider.</p>
+      <div class="form-grid">
+        <label>Nutritionist
+          <select id="s_genderNutrition">
+            <option value="female">Maya (female)</option>
+            <option value="male">Marcus (male)</option>
+          </select>
+        </label>
+        <label>Trainer
+          <select id="s_genderGym">
+            <option value="female">Vanessa (female)</option>
+            <option value="male">Dre (male)</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint left">Coach voice matches the coach you pick. Injuries, schedule, equipment, preferences in the context box above — the coaches always consider it.</p>
       <button class="btn big" id="saveProfile">Save profile</button>
+      <button class="btn ghost big" id="redoOnboard" style="margin-top:8px">🎯 Redo guided setup</button>
     </div>
 
     <div class="card">

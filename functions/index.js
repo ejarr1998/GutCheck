@@ -23,13 +23,17 @@ const CLAUDE_MODEL = "claude-sonnet-4-5";
 const MAX_TOOL_ROUNDS = 4;
 
 const ELEVEN_VOICES = {
-  nutrition: "21m00Tcm4TlvDq8ikWAM", // Rachel
-  gym: "EXAVITQu4vr4xnSDxMaL",       // Bella
+  nutrition: { female: "21m00Tcm4TlvDq8ikWAM", male: "pNInz6obpgDQGcFmaJgB" }, // Rachel / Adam
+  gym: { female: "EXAVITQu4vr4xnSDxMaL", male: "TxGEqnHWrfWFTfGW9XjX" },       // Bella / Josh
 };
 const AURA_VOICES = {
-  nutrition: "aura-2-thalia-en",
-  gym: "aura-2-hera-en",
+  nutrition: { female: "aura-2-thalia-en", male: "aura-2-orion-en" },
+  gym: { female: "aura-2-hera-en", male: "aura-2-arcas-en" },
 };
+function pickVoice(map, coachId, gender) {
+  const perCoach = map[coachId] || map.nutrition;
+  return perCoach[gender === "male" ? "male" : "female"];
+}
 
 /* ---------- shared guard: auth + per-user daily rate cap ---------- */
 // Open sign-up: any authenticated Google account may call, but every call is
@@ -219,12 +223,13 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
 
   if (op === "tts") {
     const { text, coachId, voiceId } = request.data;
+    const gender = request.data.gender === "male" ? "male" : "female";
     if (typeof text !== "string" || !text.trim() || text.length > 1800) {
       throw new HttpsError("invalid-argument", "text missing or too long (max 1800 chars).");
     }
     const elevenKey = ELEVENLABS_API_KEY.value();
     if (elevenKey) {
-      const vid = voiceId || ELEVEN_VOICES[coachId] || ELEVEN_VOICES.nutrition;
+      const vid = voiceId || pickVoice(ELEVEN_VOICES, coachId, gender);
       const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + vid, {
         method: "POST",
         headers: { "xi-api-key": elevenKey, "Content-Type": "application/json" },
@@ -242,7 +247,7 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
       return { audioBase64: buf.toString("base64"), mime: "audio/mpeg" };
     }
     // Deepgram Aura-2 fallback
-    const voice = AURA_VOICES[coachId] || AURA_VOICES.nutrition;
+    const voice = pickVoice(AURA_VOICES, coachId, gender);
     const res = await fetch("https://api.deepgram.com/v1/speak?model=" + voice, {
       method: "POST",
       headers: {

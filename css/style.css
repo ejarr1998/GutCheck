@@ -481,6 +481,11 @@ body.kbd-open .tabbar { display: none; }
 .auth-word { font-size: 34px; font-weight: 900; letter-spacing: -.02em; color: var(--text); }
 .auth-tag { font-size: 14px; color: var(--muted); font-weight: 600; line-height: 1.5; }
 .auth-err { font-size: 13px; color: #f87171; font-weight: 600; }
+.onboard-card {
+  max-width: 520px; width: 100%; max-height: calc(100vh - 48px);
+  overflow-y: auto; text-align: left; padding: 20px;
+}
+.onboard-card select { width: 100%; }
 #splash.gone { opacity: 0; pointer-events: none; }
 #splashLogo {
   width: 108px; height: 108px; border-radius: 26px;
