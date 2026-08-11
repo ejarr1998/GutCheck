@@ -46,7 +46,7 @@ function toast(msg, isErr) {
 const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
 const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT + TTS
 const KEY_GROK = "sandbox_key_grok"; // xAI image generation (coach avatars)
-const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-stella-en" }; // Maya / Dre (female Aura-2 voices)
+const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-hera-en" }; // Maya / Dre (female Aura-2 voices) — "stella" doesn't exist in Aura-2, only legacy Aura-1
 const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
 
 const DEFAULT_PROFILE = {
