@@ -46,7 +46,7 @@ function toast(msg, isErr) {
 const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
 const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT + TTS
 const KEY_GROK = "sandbox_key_grok"; // xAI image generation (coach avatars)
-const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-hera-en" }; // Maya / Dre (female Aura-2 voices) — "stella" doesn't exist in Aura-2, only legacy Aura-1
+const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-hera-en" }; // Maya / Vanessa (female Aura-2 voices) — "stella" doesn't exist in Aura-2, only legacy Aura-1
 const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
 
 const DEFAULT_PROFILE = {
@@ -81,11 +81,11 @@ const COACHES = {
     ],
   },
   gym: {
-    name: "Coach Dre",
-    short: "Dre",
+    name: "Coach Vanessa",
+    short: "Vanessa",
     title: "AI Gym Coach",
     greeting:
-      "What's up — I'm Dre, your home-training coach. I know your program, your back history, and your goals. Ask me about form, swapping exercises, or what to do today.",
+      "What's up — I'm Vanessa, your home-training coach. I know your program, your back history, and your goals. Ask me about form, swapping exercises, or what to do today.",
     suggestions: [
       "Walk me through today's workout",
       "My lower back feels tight — what should I swap?",
@@ -1227,15 +1227,15 @@ function coachSystemPrompt(coachId) {
       "\n- When suggesting meals, include rough calories and protein per item." +
       "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make." +
       "\n- STAY IN YOUR LANE: your domain is food — calories, protein, meals, groceries, eating out, cravings, hydration. " +
-      "You work alongside Dre, the strength coach, who lives in the Coach tab. " +
-      "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Dre's department — ask her in the Coach tab.\" " +
+      "You work alongside Vanessa, the strength coach, who lives in the Coach tab. " +
+      "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Vanessa's department — ask her in the Coach tab.\" " +
       "Never write out workout routines, sets, or reps." +
       "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
       "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
       "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
       "Never claim you logged something without calling the tool.";
   }
-  return "You are Dre, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
+  return "You are Vanessa, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
     "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
     "\n- Protect the lower back: coach brace/neutral spine, swap risky movements proactively." +
     "\n- Account for mono/EBV history: moderate intensity, no grind-to-failure every session." +
@@ -1592,7 +1592,7 @@ function renderAvatarPreview() {
   const wrap = $("#avatarPreview");
   if (!wrap) return;
   while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
-  [["nutrition", "Maya"], ["gym", "Dre"]].forEach((pair) => {
+  [["nutrition", "Maya"], ["gym", "Vanessa"]].forEach((pair) => {
     const c = pair[0], label = pair[1];
     const box = el("div", "ap");
     if (AVATARS[c]) {
@@ -1641,7 +1641,7 @@ async function regenerateAvatars() {
     const jobs = [["maya", "nutrition"], ["dre", "gym"]];
     for (let i = 0; i < jobs.length; i++) {
       const who = jobs[i][0], coachId = jobs[i][1];
-      btn.textContent = "⏳ Generating " + (who === "maya" ? "Maya" : "Dre") + "… (~30s)";
+      btn.textContent = "⏳ Generating " + (who === "maya" ? "Maya" : "Vanessa") + "… (~30s)";
       const res = await fetch("https://api.x.ai/v1/images/generations", {
         method: "POST",
         headers: { "content-type": "application/json", Authorization: "Bearer " + key },
