@@ -1227,7 +1227,11 @@ function showAvatarFull(coachId) {
 
 function coachSystemPrompt(coachId) {
   const p = state.profile;
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
   const shared =
+    "\n\nTODAY'S ACTUAL DATE: " + todayLabel + ". Trust this over any date assumption from your training — always use this as the true current date." +
     "\n\nCLIENT PROFILE:\n- Height: " + p.height + ", Age: " + p.age +
     "\n- Start weight: " + p.startWeight + " lbs, Goal: " + p.goalWeight + " lbs" +
     "\n- Daily targets: " + p.calories + " calories, " + p.protein + "g protein" +
