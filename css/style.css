@@ -184,7 +184,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
 .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .compare-grid img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 10px; }
 .compare-grid .cap { text-align: center; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
-.compare-grid .cap b { text-transform: capitalize; }
+.compare-grid .cap b { color: var(--text); text-transform: capitalize; }
 
 .viewer {
   position: fixed; inset: 0; z-index: 60;
