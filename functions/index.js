@@ -277,7 +277,7 @@ exports.avatarCall = onCall({ secrets: [XAI_API_KEY] }, async (request) => {
   const res = await fetch("https://api.x.ai/v1/images/generations", {
     method: "POST",
     headers: { "content-type": "application/json", Authorization: "Bearer " + XAI_API_KEY.value() },
-    body: JSON.stringify({ model: "grok-2-image", prompt, n: 1, response_format: "b64_json" }),
+    body: JSON.stringify({ model: "grok-imagine-image", prompt, n: 1, response_format: "b64_json" }), // grok-2-image was deprecated by xAI on 2026-02-28
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
