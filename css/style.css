@@ -120,6 +120,19 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 
 .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
+/* ---------- today's fuel ---------- */
+.fuel-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.fuel-row > .tiny:first-child { width: 52px; flex-shrink: 0; }
+.fuel-bar { flex: 1; }
+.fuel-row > .tiny:last-child { min-width: 74px; text-align: right; font-variant-numeric: tabular-nums; }
+.meal-form { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.meal-form textarea { margin-bottom: 8px; }
+.meal-confirm { margin-top: 12px; background: var(--card2); border: 1px solid var(--lime); border-radius: 10px; padding: 12px; }
+.meal-est { font-size: 13px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+.fuel-edit { flex: 1; }
+.fuel-edit input { margin-top: 4px; }
+.meal-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); vertical-align: middle; margin-right: 8px; }
+
 /* ---------- buttons / inputs ---------- */
 .btn {
   background: var(--lime); color: var(--lime-dark);
