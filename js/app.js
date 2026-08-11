@@ -523,7 +523,32 @@ function renderMealPhotoPrev() {
   prev.appendChild(rm);
 }
 
-function pickMealPhoto() {
+// Opens the phone camera straight away (mobile + PWA) via the capture attribute;
+// on desktop the attribute is ignored and a normal file picker opens instead.
+// Use this for "Take a photo" buttons — plain file inputs skip the camera entirely in many PWAs.
+function takeCameraPhoto(onFile) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.setAttribute("capture", "environment");
+  input.addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) onFile(f);
+  });
+  input.click();
+}
+
+function pickMealPhoto(useCamera) {
+  if (useCamera) {
+    takeCameraPhoto(async (f) => {
+      try {
+        const data = await compressForFirestore(f);
+        mealAttach = await downscaleDataUrl(data, 768, 0.8);
+        renderMealPhotoPrev();
+      } catch (err) { toast("Could not read photo: " + err.message, true); }
+    });
+    return;
+  }
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -1724,9 +1749,20 @@ function openAttachPicker(coachId) {
   head.appendChild(close);
   sheet.appendChild(head);
 
-  const upBtn = el("button", "btn big", "📷 Take / upload a new photo");
-  upBtn.addEventListener("click", () => $("#attachFile").click());
-  sheet.appendChild(upBtn);
+  const takeBtn = el("button", "btn big", "📷 Take a photo");
+  takeBtn.addEventListener("click", () => {
+    takeCameraPhoto(async (f) => {
+      try {
+        const data = await compressForFirestore(f);
+        attachPhoto(coachId, data);
+      } catch (err) { toast("Could not read photo: " + err.message, true); }
+    });
+  });
+  sheet.appendChild(takeBtn);
+  const libBtn = el("button", "btn ghost big", "🖼 Choose from gallery");
+  libBtn.style.marginTop = "8px";
+  libBtn.addEventListener("click", () => $("#attachFile").click());
+  sheet.appendChild(libBtn);
 
   if (state.photos.length) {
     sheet.appendChild(el("div", "day-label", "Or pick from your progress photos"));
@@ -2434,13 +2470,15 @@ function wireEvents() {
   });
   $("#measForm").addEventListener("submit", (e) => e.preventDefault());
   $("#logMeasBtn").addEventListener("click", logMeasurements);
-  $("#mealPhotoBtn").addEventListener("click", pickMealPhoto);
+  $("#mealPhotoBtn").addEventListener("click", () => pickMealPhoto(true));
+  $("#mealGalleryBtn").addEventListener("click", () => pickMealPhoto(false));
   $("#mealEstimateBtn").addEventListener("click", estimateMealWithMaya);
   $("#mealManualBtn").addEventListener("click", openManualMealEntry);
   $("#mealSaveBtn").addEventListener("click", saveMealEntry);
   $("#mealCancelBtn").addEventListener("click", closeMealConfirm);
   $("#exportBtn").addEventListener("click", exportAllData);
-  $("#photoBtn").addEventListener("click", () => $("#photoFile").click());
+  $("#photoBtn").addEventListener("click", () => takeCameraPhoto((f) => uploadPhoto(f)));
+  $("#photoGalleryBtn").addEventListener("click", () => $("#photoFile").click());
   $("#photoFile").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
     if (f) uploadPhoto(f);
