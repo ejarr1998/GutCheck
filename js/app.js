@@ -601,10 +601,14 @@ function buildCoachPanel(coachId) {
   jumps.id = "jumpBtns-" + coachId;
   jumps.hidden = true;
   const jt = el("button", "jump-fab", "↑");
-  jt.type = "button"; jt.id = "jumpTop-" + coachId; jt.title = "Jump to top";
+  jt.type = "button";
+  jt.id = "jumpTop-" + coachId;
+  jt.title = "Jump to top";
   jt.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
   const jb = el("button", "jump-fab", "↓");
-  jb.type = "button"; jb.id = "jumpInput-" + coachId; jb.title = "Jump to the chat box";
+  jb.type = "button";
+  jb.id = "jumpInput-" + coachId;
+  jb.title = "Jump to the chat box";
   jb.addEventListener("click", () => {
     const input = $("#chatInput-" + coachId);
     if (input) input.scrollIntoView({ behavior: "smooth", block: "center" });
