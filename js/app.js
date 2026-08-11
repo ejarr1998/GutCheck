@@ -1317,7 +1317,7 @@ async function callClaude(coachId) {
   // results, and go again until she replies with plain text. Cap rounds as a safety valve.
   const MAX_TOOL_ROUNDS = 4;
   let lastText = "";
-  for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const body = {
       model: "claude-sonnet-4-5",
       max_tokens: 1200,
