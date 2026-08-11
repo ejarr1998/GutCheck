@@ -121,7 +121,6 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
   flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 10px 12px; display: flex; align-items: center; gap: 8px; font-size: 13px;
 }
-.streak-chip .flame { font-size: 18px; }
 .streak-chip b { font-size: 16px; font-variant-numeric: tabular-nums; }
 
 /* measurements */

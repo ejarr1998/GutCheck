@@ -286,6 +286,7 @@ function renderDashboard() {
   renderChart();
   renderWeightLog();
   renderMeasurements();
+  renderMealTotals();
   maybeShowStreakReminder(wStreak, pStreak);
 }
 
@@ -500,11 +501,190 @@ function renderMeasurements() {
   emptyHint.hidden = any;
 }
 
-/* ---------- meals ----------
-   Kimi's "Today's Fuel" card (photo + Maya estimate + manual entry) owns the
-   UI for this. This file just keeps the "meals" collection loaded into
-   state.meals so it's available to computeStreak-style stats, Maya's system
-   prompt, and the data export below — nothing here renders meal UI. */
+/* ---------- meals: "Today's Fuel" card (photo/description -> Maya estimate or manual -> save) ---------- */
+let mealAttach = null; // pending photo data URL for the meal being composed
+
+function renderMealPhotoPrev() {
+  const prev = $("#mealPhotoPrev");
+  while (prev.firstChild) prev.removeChild(prev.firstChild);
+  prev.hidden = !mealAttach;
+  if (!mealAttach) return;
+  const img = document.createElement("img");
+  img.src = mealAttach;
+  img.alt = "meal photo";
+  prev.appendChild(img);
+  prev.appendChild(el("span", null, "Photo attached"));
+  const rm = el("button", "rm", "✕");
+  rm.type = "button";
+  rm.title = "Remove photo";
+  rm.addEventListener("click", () => { mealAttach = null; renderMealPhotoPrev(); });
+  prev.appendChild(rm);
+}
+
+function pickMealPhoto() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      const data = await compressForFirestore(f);
+      mealAttach = await downscaleDataUrl(data, 768, 0.8);
+      renderMealPhotoPrev();
+    } catch (err) { toast("Could not read photo: " + err.message, true); }
+  });
+  input.click();
+}
+
+function openMealConfirm(estText, cal, protein) {
+  $("#mealEstText").textContent = estText;
+  $("#m_cal").value = cal != null ? cal : "";
+  $("#m_pro").value = protein != null ? protein : "";
+  $("#mealConfirm").hidden = false;
+}
+
+function closeMealConfirm() {
+  $("#mealConfirm").hidden = true;
+}
+
+function openManualMealEntry() {
+  const desc = $("#mealDesc").value.trim();
+  openMealConfirm(desc ? "Manual entry — " + desc : "Manual entry — enter your numbers below.", null, null);
+}
+
+async function estimateMealWithMaya() {
+  const desc = $("#mealDesc").value.trim();
+  if (!desc && !mealAttach) { toast("Describe the meal or attach a photo first", true); return; }
+  const key = localStorage.getItem(KEY_CLAUDE);
+  if (!key) { toast("Add your Anthropic API key in Settings first", true); return; }
+
+  const btn = $("#mealEstimateBtn");
+  btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = "Estimating…";
+  try {
+    const content = [];
+    if (mealAttach) {
+      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: mealAttach.split(",")[1] || "" } });
+    }
+    content.push({
+      type: "text",
+      text: "Estimate calories and protein for this meal" + (desc ? ": " + desc : " from the photo") +
+        ". Respond with ONLY compact JSON, no markdown, no explanation: " +
+        "{\"description\":\"short 3-6 word name for this meal\",\"calories\":number,\"protein\":number}",
+    });
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        max_tokens: 300,
+        messages: [{ role: "user", content }],
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error("Claude API " + res.status + ": " + t.slice(0, 200));
+    }
+    const data = await res.json();
+    const raw = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const est = "Maya's estimate — " + esc(parsed.description || desc || "meal") + ": " +
+      Math.round(parsed.calories) + " kcal, " + Math.round(parsed.protein) + "g protein. Adjust below if needed.";
+    openMealConfirm(est, Math.round(parsed.calories) || "", Math.round(parsed.protein) || "");
+  } catch (e) {
+    toast("Estimate failed: " + e.message + " — you can still enter numbers manually", true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
+}
+
+async function saveMealEntry() {
+  const cal = parseFloat($("#m_cal").value);
+  const protein = parseFloat($("#m_pro").value);
+  if (isNaN(cal) && isNaN(protein)) { toast("Enter calories or protein", true); return; }
+  const desc = $("#mealDesc").value.trim();
+  const entry = {
+    loggedAt: new Date().toISOString(),
+    description: desc || "Meal",
+    calories: isNaN(cal) ? 0 : cal,
+    protein: isNaN(protein) ? 0 : protein,
+    source: mealAttach ? "photo" : "manual",
+  };
+  if (mealAttach) entry.imageData = mealAttach;
+  const btn = $("#mealSaveBtn");
+  btn.disabled = true;
+  try {
+    const ref = await db.collection("meals").add(entry);
+    state.meals.push({ id: ref.id, ...entry });
+    $("#mealDesc").value = "";
+    mealAttach = null;
+    renderMealPhotoPrev();
+    closeMealConfirm();
+    renderMealTotals();
+    toast("Meal logged");
+  } catch (e) {
+    toast("Save failed: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteMeal(id) {
+  try {
+    await db.collection("meals").doc(id).delete();
+    state.meals = state.meals.filter((m) => m.id !== id);
+    renderMealTotals();
+    toast("Entry deleted");
+  } catch (e) { toast("Delete failed: " + e.message, true); }
+}
+
+function renderMealTotals() {
+  const todayKey = dayKey(new Date().toISOString());
+  const today = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
+  const cal = today.reduce((s, m) => s + (m.calories || 0), 0);
+  const protein = today.reduce((s, m) => s + (m.protein || 0), 0);
+  const calGoal = parseFloat(state.profile.calories) || 0;
+  const proteinGoal = parseFloat(state.profile.protein) || 0;
+
+  $("#fuelCalLabel").textContent = Math.round(cal) + " / " + (calGoal || "–");
+  $("#fuelProLabel").textContent = Math.round(protein) + " / " + (proteinGoal || "–") + "g";
+  $("#fuelCalBar").style.width = (calGoal ? Math.min(100, (cal / calGoal) * 100) : 0) + "%";
+  $("#fuelProBar").style.width = (proteinGoal ? Math.min(100, (protein / proteinGoal) * 100) : 0) + "%";
+  const left = $("#fuelLeft");
+  if (calGoal) {
+    const remaining = Math.round(calGoal - cal);
+    left.textContent = remaining >= 0 ? remaining + " kcal left" : (-remaining) + " over";
+  } else {
+    left.textContent = "–";
+  }
+
+  const list = $("#mealList");
+  while (list.firstChild) list.removeChild(list.firstChild);
+  today.slice().reverse().forEach((m) => {
+    const row = el("div", "wrow");
+    const left2 = el("span", null, (m.description || "Meal") + (m.source === "photo" ? " 📷" : ""));
+    const right = el("span");
+    const b = el("b", null, Math.round(m.calories || 0) + " kcal · " + Math.round(m.protein || 0) + "g");
+    const del = el("button", "del", "✕");
+    del.title = "Delete entry";
+    del.addEventListener("click", () => deleteMeal(m.id));
+    right.appendChild(b);
+    right.appendChild(document.createTextNode(" "));
+    right.appendChild(del);
+    row.appendChild(left2);
+    row.appendChild(right);
+    list.appendChild(row);
+  });
+}
 
 /* ---------- photos ---------- */
 function compressImage(file, maxDim, quality) {
@@ -2118,6 +2298,11 @@ function wireEvents() {
   });
   $("#measForm").addEventListener("submit", (e) => e.preventDefault());
   $("#logMeasBtn").addEventListener("click", logMeasurements);
+  $("#mealPhotoBtn").addEventListener("click", pickMealPhoto);
+  $("#mealEstimateBtn").addEventListener("click", estimateMealWithMaya);
+  $("#mealManualBtn").addEventListener("click", openManualMealEntry);
+  $("#mealSaveBtn").addEventListener("click", saveMealEntry);
+  $("#mealCancelBtn").addEventListener("click", closeMealConfirm);
   $("#exportBtn").addEventListener("click", exportAllData);
   $("#photoBtn").addEventListener("click", () => $("#photoFile").click());
   $("#photoFile").addEventListener("change", (e) => {
