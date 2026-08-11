@@ -468,6 +468,19 @@ body.kbd-open .tabbar { display: none; }
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; transition: opacity .6s ease;
 }
+
+/* ---------- auth gate ---------- */
+.auth-gate {
+  position: fixed; inset: 0; z-index: 190; background: #0c0e09;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.auth-card {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  max-width: 340px; width: 100%; text-align: center;
+}
+.auth-word { font-size: 34px; font-weight: 900; letter-spacing: -.02em; color: var(--text); }
+.auth-tag { font-size: 14px; color: var(--muted); font-weight: 600; line-height: 1.5; }
+.auth-err { font-size: 13px; color: #f87171; font-weight: 600; }
 #splash.gone { opacity: 0; pointer-events: none; }
 #splashLogo {
   width: 108px; height: 108px; border-radius: 26px;

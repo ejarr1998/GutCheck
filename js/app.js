@@ -1,6 +1,6 @@
 /* ============================================================
    GutCheck — progress photos, weight log, AI coaches
-   Vanilla JS + Firebase (Firestore) + Claude (browser call)
+   Vanilla JS + Firebase (Auth + Firestore) + Cloud Functions proxy (Claude / Deepgram / ElevenLabs / Grok)
    ============================================================ */
 "use strict";
 
@@ -15,9 +15,13 @@ const FIREBASE_CONFIG = {
 };
 
 let db = null;
+let auth = null;
+let fns = null;
 try {
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.firestore();
+  auth = firebase.auth();
+  fns = firebase.functions();
 } catch (e) {
   console.error("Firebase init failed:", e);
 }
@@ -43,12 +47,7 @@ function toast(msg, isErr) {
 }
 
 /* ---------- constants ---------- */
-const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
-const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT only now (TTS moved to ElevenLabs when configured)
-const KEY_ELEVEN = "sandbox_key_elevenlabs"; // voice: TTS (better quality than Aura-2)
-const ELEVEN_VOICE_KEYS = { nutrition: "sandbox_elevenlabs_voice_nutrition", gym: "sandbox_elevenlabs_voice_gym" };
-const KEY_GROK = "sandbox_key_grok"; // xAI image generation (coach avatars)
-const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-hera-en" }; // Maya / Vanessa (female Aura-2 voices) — "stella" doesn't exist in Aura-2, only legacy Aura-1
+// All AI keys live server-side in Cloud Functions secrets — nothing to paste here.
 const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
 
 const DEFAULT_PROFILE = {
@@ -100,6 +99,8 @@ const COACHES = {
 
 const state = {
   tab: "dashboard",
+  uid: null,        // Firebase Auth uid — scopes every Firestore path
+  userEmail: null,
   profile: { ...DEFAULT_PROFILE },
   weights: [], // {id, weight, loggedAt}
   photos: [],  // {id, imageData, label, note, takenAt}
@@ -126,14 +127,21 @@ const state = {
 };
 
 /* ---------- Firestore helpers ---------- */
+// Every user-owned path is namespaced under users/{uid}/ so accounts are
+// fully isolated (also enforced by security rules server-side).
+function ucol(path) {
+  if (!state.uid) throw new Error("Not signed in");
+  return "users/" + state.uid + "/" + path;
+}
+
 async function fsGet(col, orderBy, dir) {
-  const snap = await db.collection(col).orderBy(orderBy, dir || "asc").get();
+  const snap = await db.collection(ucol(col)).orderBy(orderBy, dir || "asc").get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 async function loadProfile() {
   try {
-    const doc = await db.collection("settings").doc("profile").get();
+    const doc = await db.collection(ucol("settings")).doc("profile").get();
     if (doc.exists) state.profile = { ...DEFAULT_PROFILE, ...doc.data() };
   } catch (e) {
     console.warn("profile load failed:", e);
@@ -141,7 +149,7 @@ async function loadProfile() {
 }
 
 async function saveProfile() {
-  await db.collection("settings").doc("profile").set(state.profile);
+  await db.collection(ucol("settings")).doc("profile").set(state.profile);
 }
 
 async function loadWeights() {
@@ -171,7 +179,7 @@ async function loadChat(coach) {
 async function addChatMsg(coach, role, content, img) {
   const msg = { role, content, at: new Date().toISOString() };
   if (img) msg.img = img;
-  const ref = await db.collection("chats").doc(coach).collection("messages").add(msg);
+  const ref = await db.collection(ucol("chats")).doc(coach).collection("messages").add(msg);
   state.chats[coach].push({ id: ref.id, ...msg });
 }
 
@@ -422,7 +430,7 @@ function renderWeightLog() {
     del.title = "Delete entry";
     del.addEventListener("click", async () => {
       try {
-        await db.collection("weights").doc(w.id).delete();
+        await db.collection(ucol("weights")).doc(w.id).delete();
         state.weights = state.weights.filter((x) => x.id !== w.id);
         renderDashboard();
         toast("Entry deleted");
@@ -442,7 +450,7 @@ async function logWeight(val) {
   if (!w || w < 50 || w > 800) { toast("Enter a valid weight in lbs", true); return; }
   try {
     const entry = { weight: w, loggedAt: new Date().toISOString() };
-    const ref = await db.collection("weights").add(entry);
+    const ref = await db.collection(ucol("weights")).add(entry);
     state.weights.push({ id: ref.id, ...entry });
     $("#weightInput").value = "";
     renderDashboard();
@@ -470,7 +478,7 @@ async function logMeasurements() {
   });
   if (!any) { toast("Enter at least one measurement", true); return; }
   try {
-    const ref = await db.collection("measurements").add(entry);
+    const ref = await db.collection(ucol("measurements")).add(entry);
     state.measurements.push({ id: ref.id, ...entry });
     MEAS_FIELDS.forEach((f) => { $("#m_" + f.key).value = ""; });
     renderMeasurements();
@@ -583,8 +591,6 @@ function openManualMealEntry() {
 async function estimateMealWithMaya() {
   const desc = $("#mealDesc").value.trim();
   if (!desc && !mealAttach) { toast("Describe the meal or attach a photo first", true); return; }
-  const key = localStorage.getItem(KEY_CLAUDE);
-  if (!key) { toast("Add your Anthropic API key in Settings first", true); return; }
 
   const btn = $("#mealEstimateBtn");
   btn.disabled = true;
@@ -601,26 +607,12 @@ async function estimateMealWithMaya() {
         ". Respond with ONLY compact JSON, no markdown, no explanation: " +
         "{\"description\":\"short 3-6 word name for this meal\",\"calories\":number,\"protein\":number}",
     });
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 300,
-        messages: [{ role: "user", content }],
-      }),
+    const res = await fns.httpsCallable("coachCall")({
+      system: "You are Maya, a nutrition estimation engine. Reply with ONLY the compact JSON the client asks for — no markdown, no explanation.",
+      messages: [{ role: "user", content }],
+      useTools: false,
     });
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      throw new Error("Claude API " + res.status + ": " + t.slice(0, 200));
-    }
-    const data = await res.json();
-    const raw = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    const raw = String((res.data && res.data.text) || "").trim();
     const cleaned = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     const est = "Maya's estimate — " + esc(parsed.description || desc || "meal") + ": " +
@@ -650,7 +642,7 @@ async function saveMealEntry() {
   const btn = $("#mealSaveBtn");
   btn.disabled = true;
   try {
-    const ref = await db.collection("meals").add(entry);
+    const ref = await db.collection(ucol("meals")).add(entry);
     state.meals.push({ id: ref.id, ...entry });
     $("#mealDesc").value = "";
     mealAttach = null;
@@ -667,7 +659,7 @@ async function saveMealEntry() {
 
 async function deleteMeal(id) {
   try {
-    await db.collection("meals").doc(id).delete();
+    await db.collection(ucol("meals")).doc(id).delete();
     state.meals = state.meals.filter((m) => m.id !== id);
     renderMealTotals();
     toast("Entry deleted");
@@ -756,7 +748,7 @@ async function uploadPhoto(file) {
       note: $("#photoNote").value.trim(),
       takenAt: new Date().toISOString(),
     };
-    const ref = await db.collection("photos").add(entry);
+    const ref = await db.collection(ucol("photos")).add(entry);
     state.photos.unshift({ id: ref.id, ...entry });
     $("#photoNote").value = "";
     renderPhotos();
@@ -864,7 +856,7 @@ async function deleteViewerPhoto() {
   const id = state.viewerId;
   if (!id) return;
   try {
-    await db.collection("photos").doc(id).delete();
+    await db.collection(ucol("photos")).doc(id).delete();
     state.photos = state.photos.filter((p) => p.id !== id);
     state.compareSel = state.compareSel.filter((x) => x !== id);
     $("#viewer").hidden = true;
@@ -1276,62 +1268,11 @@ function coachSystemPrompt(coachId) {
     "Never write out meal plans or calorie breakdowns.";
 }
 
-/* ---------- Maya's meal-logging tool (native tool use, nutrition coach only) ---------- */
-const MAYA_TOOLS = [{
-  name: "log_meal",
-  description:
-    "Log a meal to the client's daily tracker (Today's fuel card on the dashboard). " +
-    "Use whenever the client asks you to log something they ate, or tells you what they ate expecting it to be tracked.",
-  input_schema: {
-    type: "object",
-    properties: {
-      description: { type: "string", description: "Short 3-6 word name for the meal" },
-      calories: { type: "number", description: "Estimated total calories (integer)" },
-      protein: { type: "number", description: "Estimated grams of protein (integer)" },
-    },
-    required: ["description", "calories", "protein"],
-  },
-}];
-
-// Executes one tool_use block from Maya. Returns the tool_result content string —
-// either a confirmation with the new daily total, or a rejection she can react to.
-async function runMayaTool(name, input) {
-  if (name !== "log_meal") return "Unknown tool: " + name;
-  const cal = Math.round(Number(input.calories));
-  const pro = Math.round(Number(input.protein));
-  if (!cal || cal < 1 || cal > 10000) {
-    return "Rejected: calories (" + input.calories + ") is not a plausible number. Ask the client for clarification or re-estimate, then try again.";
-  }
-  if (isNaN(pro) || pro < 0 || pro > 500) {
-    return "Rejected: protein (" + input.protein + ") is not a plausible number. Re-estimate and try again.";
-  }
-  const entry = {
-    loggedAt: new Date().toISOString(),
-    description: String(input.description || "Meal").slice(0, 80),
-    calories: cal,
-    protein: pro,
-    source: "maya",
-  };
-  const ref = await db.collection("meals").add(entry);
-  state.meals.push({ id: ref.id, ...entry });
-  renderMealTotals();
-  const todayKey = dayKey(new Date().toISOString());
-  const today = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
-  const calSoFar = Math.round(today.reduce((s, m) => s + (m.calories || 0), 0));
-  const proSoFar = Math.round(today.reduce((s, m) => s + (m.protein || 0), 0));
-  return "Logged: " + entry.description + " (" + cal + " kcal, " + pro + "g protein). " +
-    "Today's totals are now " + calSoFar + " kcal and " + proSoFar + "g protein against targets of " +
-    state.profile.calories + " kcal and " + state.profile.protein + "g.";
-}
-
+/* ---------- coach brain (server-side proxy) ---------- */
+// All Claude calls — including Maya's log_meal tool-use loop — run inside the
+// coachCall Cloud Function. The browser never sees an API key, and the function
+// writes meals under the caller's own users/{uid}/ namespace.
 async function callClaude(coachId) {
-  const key = localStorage.getItem(KEY_CLAUDE);
-  if (!key) {
-    return "I'm ready to coach you, but I need a brain first — add your Anthropic API key in Settings (⚙️ gear icon, top right → AI connection). " +
-      "If you've saved one on kimis-sandbox before, it should already work — same browser, same key slot. " +
-      "Your targets are already loaded: " + state.profile.calories + " kcal / " + state.profile.protein +
-      "g protein, " + state.profile.startWeight + " → " + state.profile.goalWeight + " lbs.";
-  }
   const history = state.chats[coachId].slice(-30).map((m) => {
     if (!m.img) return { role: m.role, content: m.content };
     return {
@@ -1342,71 +1283,34 @@ async function callClaude(coachId) {
       ],
     };
   });
-
-  // Tool-use loop: Maya can call log_meal mid-conversation. Each round we send the
-  // conversation; if she answers with tool_use blocks we execute them, append the
-  // results, and go again until she replies with plain text. Cap rounds as a safety valve.
-  const MAX_TOOL_ROUNDS = 4;
-  let lastText = "";
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const body = {
-      model: "claude-sonnet-4-5",
-      max_tokens: 1200,
-      system: coachSystemPrompt(coachId),
-      messages: history,
-    };
-    if (coachId === "nutrition") body.tools = MAYA_TOOLS;
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error("Claude API " + res.status + ": " + text.slice(0, 200));
-    }
-    const data = await res.json();
-    const blocks = data.content || [];
-    lastText = blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-    if (data.stop_reason !== "tool_use") {
-      if (!lastText) throw new Error("Claude returned an empty response");
-      return lastText;
-    }
-    // execute every tool call in this turn, then feed the results back
-    history.push({ role: "assistant", content: blocks });
-    const results = [];
-    for (const b of blocks) {
-      if (b.type !== "tool_use") continue;
-      let out;
-      try {
-        out = await runMayaTool(b.name, b.input || {});
-      } catch (e) {
-        out = "Tool failed: " + e.message;
-      }
-      results.push({ type: "tool_result", tool_use_id: b.id, content: out });
-    }
-    history.push({ role: "user", content: results });
+  const res = await fns.httpsCallable("coachCall")({
+    system: coachSystemPrompt(coachId),
+    messages: history,
+    useTools: coachId === "nutrition",
+    targets: { calories: state.profile.calories, protein: state.profile.protein },
+  });
+  const data = res.data || {};
+  if (data.mealLogged) {
+    await loadMeals();
+    renderMealTotals();
   }
-  // hit the round cap — the tool calls still happened, so tell the user what changed
-  return lastText || "Done — check Today's fuel on the Home tab for what I logged.";
+  if (!data.text) throw new Error("Coach returned an empty response");
+  return data.text;
 }
 
-/* ---------- voice (Deepgram nova-3 STT; ElevenLabs TTS when configured, else Aura-2) ---------- */
-function deepgramKey() {
-  return localStorage.getItem(KEY_DEEPGRAM) || "";
+/* ---------- voice (Deepgram nova-3 STT; ElevenLabs TTS, Aura-2 fallback — all via voiceCall) ---------- */
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error("Could not read audio"));
+    r.readAsDataURL(blob);
+  });
 }
 
-function elevenKey() {
-  return localStorage.getItem(KEY_ELEVEN) || "";
-}
-
-function elevenVoiceId(coachId) {
-  return localStorage.getItem(ELEVEN_VOICE_KEYS[coachId] || ELEVEN_VOICE_KEYS.nutrition) || "";
+async function base64ToBlob(b64, mime) {
+  const res = await fetch("data:" + (mime || "audio/mpeg") + ";base64," + b64);
+  return res.blob();
 }
 
 function pickMime() {
@@ -1423,10 +1327,6 @@ async function toggleRecording(coachId) {
   // stop path
   if (state.voice.recorder && state.voice.recorder.state === "recording") {
     state.voice.recorder.stop();
-    return;
-  }
-  if (!deepgramKey()) {
-    toast("Add your Deepgram key first (Settings ⚙️ → Voice)", true);
     return;
   }
   const mime = pickMime();
@@ -1478,22 +1378,13 @@ async function toggleRecording(coachId) {
 }
 
 async function transcribeAudio(blob) {
-  const res = await fetch("https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true", {
-    method: "POST",
-    headers: {
-      Authorization: "Token " + deepgramKey(),
-      "Content-Type": blob.type || "application/octet-stream",
-    },
-    body: blob,
+  const audioBase64 = await blobToBase64(blob);
+  const res = await fns.httpsCallable("voiceCall")({
+    op: "stt",
+    audioBase64,
+    mime: blob.type || "application/octet-stream",
   });
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error("Deepgram STT " + res.status + ": " + t.slice(0, 160));
-  }
-  const data = await res.json();
-  const alt = data.results && data.results.channels && data.results.channels[0] &&
-    data.results.channels[0].alternatives && data.results.channels[0].alternatives[0];
-  return alt && alt.transcript ? alt.transcript.trim() : "";
+  return (res.data && res.data.transcript) ? res.data.transcript.trim() : "";
 }
 
 function stopSpeaking() {
@@ -1536,18 +1427,13 @@ async function speakText(coachId, text, btn) {
   }
   stopSpeaking();
 
-  const useEleven = !!(elevenKey() && elevenVoiceId(coachId));
-  if (!useEleven && !deepgramKey()) {
-    toast("Add a voice key first (Settings ⚙️ → Voice output/input)", true);
-    return;
-  }
   if (btn) {
     btn.classList.add("speaking");
     btn.textContent = "⏸";
     state.voice.speakBtn = btn;
   }
   try {
-    // ElevenLabs (10k char cap) vs Deepgram Aura-2 (~2k) — chunk conservatively either way
+    // voiceCall caps text at 1800 chars server-side — chunk conservatively
     const chunks = [];
     let rest = ttsClean(text);
     while (rest.length > 1800) {
@@ -1559,41 +1445,10 @@ async function speakText(coachId, text, btn) {
     if (rest) chunks.push(rest);
 
     for (const chunk of chunks) {
-      let audioBlob;
-      if (useEleven) {
-        const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + elevenVoiceId(coachId), {
-          method: "POST",
-          headers: {
-            "xi-api-key": elevenKey(),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: chunk,
-            model_id: "eleven_multilingual_v2",
-            voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-          }),
-        });
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error("ElevenLabs TTS " + res.status + ": " + t.slice(0, 160));
-        }
-        audioBlob = await res.blob();
-      } else {
-        const voice = COACH_VOICES[coachId] || COACH_VOICES.nutrition;
-        const res = await fetch("https://api.deepgram.com/v1/speak?model=" + voice, {
-          method: "POST",
-          headers: {
-            Authorization: "Token " + deepgramKey(),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ text: chunk }),
-        });
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error("Deepgram TTS " + res.status + ": " + t.slice(0, 160));
-        }
-        audioBlob = await res.blob();
-      }
+      const res = await fns.httpsCallable("voiceCall")({ op: "tts", text: chunk, coachId });
+      const d = res.data || {};
+      if (!d.audioBase64) throw new Error("Voice server returned no audio");
+      const audioBlob = await base64ToBlob(d.audioBase64, d.mime);
       const url = URL.createObjectURL(audioBlob);
       await new Promise((resolve) => {
         const a = new Audio(url);
@@ -1612,7 +1467,7 @@ async function speakText(coachId, text, btn) {
 }
 
 /* ---------- coach avatars (Firestore settings/avatars + Grok regen) ---------- */
-function avatarCacheKey(coachId) { return "gutcheck_avatar_" + coachId; }
+function avatarCacheKey(coachId) { return "gutcheck_avatar_" + (state.uid || "anon") + "_" + coachId; }
 
 async function loadAvatars() {
   ["nutrition", "gym"].forEach((c) => {
@@ -1621,7 +1476,7 @@ async function loadAvatars() {
   });
   applyAvatars();
   try {
-    const doc = await db.collection("settings").doc("avatars").get();
+    const doc = await db.collection(ucol("settings")).doc("avatars").get();
     if (doc.exists) {
       const d = doc.data();
       if (d.maya) { AVATARS.nutrition = d.maya; localStorage.setItem(avatarCacheKey("nutrition"), d.maya); }
@@ -1695,8 +1550,6 @@ const GROK_PROMPTS = {
 };
 
 async function regenerateAvatars() {
-  const key = localStorage.getItem(KEY_GROK);
-  if (!key) { toast("Add your xAI key first, then generate", true); return; }
   const btn = $("#regenAvatars");
   btn.disabled = true;
   try {
@@ -1704,22 +1557,13 @@ async function regenerateAvatars() {
     for (let i = 0; i < jobs.length; i++) {
       const who = jobs[i][0], coachId = jobs[i][1];
       btn.textContent = "⏳ Generating " + (who === "maya" ? "Maya" : "Vanessa") + "… (~30s)";
-      const res = await fetch("https://api.x.ai/v1/images/generations", {
-        method: "POST",
-        headers: { "content-type": "application/json", Authorization: "Bearer " + key },
-        body: JSON.stringify({ model: "grok-2-image", prompt: GROK_PROMPTS[who], n: 1, response_format: "b64_json" }),
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error("xAI " + res.status + ": " + t.slice(0, 160));
-      }
-      const data = await res.json();
-      const b64 = data.data && data.data[0] && data.data[0].b64_json;
-      if (!b64) throw new Error("xAI returned no image data");
+      const res = await fns.httpsCallable("avatarCall")({ prompt: GROK_PROMPTS[who] });
+      const b64 = res.data && res.data.imageBase64;
+      if (!b64) throw new Error("Avatar server returned no image data");
       const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
       const patch = {};
       patch[who] = small;
-      await db.collection("settings").doc("avatars").set(patch, { merge: true });
+      await db.collection(ucol("settings")).doc("avatars").set(patch, { merge: true });
       AVATARS[coachId] = small;
       localStorage.setItem(avatarCacheKey(coachId), small);
       applyAvatars();
@@ -2133,7 +1977,7 @@ async function finishWorkout() {
   };
   try {
     if (db) {
-      const ref = await db.collection("workouts").add(entry);
+      const ref = await db.collection(ucol("workouts")).add(entry);
       state.workouts.push({ id: ref.id, ...entry });
       renderHeatmap();
     }
@@ -2316,7 +2160,7 @@ async function sendCoachMessage(coachId, text) {
 
 async function clearChat(coachId) {
   try {
-    const snap = await db.collection("chats").doc(coachId).collection("messages").get();
+    const snap = await db.collection(ucol("chats")).doc(coachId).collection("messages").get();
     const batch = db.batch();
     snap.docs.forEach((d) => batch.delete(d.ref));
     await batch.commit();
@@ -2331,12 +2175,8 @@ const PROFILE_FIELDS = ["height", "age", "startWeight", "goalWeight", "calories"
 
 function renderSettings() {
   PROFILE_FIELDS.forEach((f) => { $("#s_" + f).value = state.profile[f] || ""; });
-  $("#aiPill").hidden = !localStorage.getItem(KEY_CLAUDE);
-  $("#dgPill").hidden = !localStorage.getItem(KEY_DEEPGRAM);
-  $("#grokPill").hidden = !localStorage.getItem(KEY_GROK);
-  $("#elPill").hidden = !localStorage.getItem(KEY_ELEVEN);
-  $("#s_elVoiceMaya").value = localStorage.getItem(ELEVEN_VOICE_KEYS.nutrition) || "";
-  $("#s_elVoiceVanessa").value = localStorage.getItem(ELEVEN_VOICE_KEYS.gym) || "";
+  const acct = $("#accountEmail");
+  if (acct) acct.textContent = state.userEmail || "unknown";
   renderAvatarPreview();
 }
 
@@ -2349,50 +2189,93 @@ async function onSaveProfile() {
   } catch (e) { toast("Save failed: " + e.message, true); }
 }
 
-function onSaveKey() {
-  const v = $("#s_apiKey").value.trim();
-  if (!v) { toast("Paste a key first", true); return; }
-  localStorage.setItem(KEY_CLAUDE, v);
-  $("#s_apiKey").value = "";
-  $("#aiPill").hidden = false;
-  toast("Key saved — coaches are live");
+/* ---------- auth gate ---------- */
+function showAuthGate(msg) {
+  const gate = $("#authGate");
+  if (gate) gate.hidden = false;
+  const err = $("#authGateErr");
+  if (err) { err.hidden = !msg; err.textContent = msg || ""; }
 }
 
-function onSaveDgKey() {
-  const v = $("#s_dgKey").value.trim();
-  if (!v) { toast("Paste a key first", true); return; }
-  localStorage.setItem(KEY_DEEPGRAM, v);
-  $("#s_dgKey").value = "";
-  $("#dgPill").hidden = false;
-  toast("Voice key saved — tap 🎙 in any coach chat");
+function hideAuthGate() {
+  const gate = $("#authGate");
+  if (gate) gate.hidden = true;
 }
 
-function onSaveElKey() {
-  const v = $("#s_elKey").value.trim();
-  if (!v) { toast("Paste a key first", true); return; }
-  localStorage.setItem(KEY_ELEVEN, v);
-  $("#s_elKey").value = "";
-  $("#elPill").hidden = false;
-  toast("ElevenLabs key saved");
+async function signInWithGoogle() {
+  const errBox = $("#authGateErr");
+  if (errBox) errBox.hidden = true;
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try {
+    await auth.signInWithPopup(provider);
+  } catch (e) {
+    // Popup blocked/closed or unsupported (installed PWA, some mobile browsers) → redirect
+    if (e && (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user" ||
+              e.code === "auth/operation-not-supported-in-this-environment" || e.code === "auth/web-storage-unsupported")) {
+      try { await auth.signInWithRedirect(provider); return; } catch (e2) { e = e2; }
+    }
+    if (e && e.code !== "auth/cancelled-popup-request") {
+      showAuthGate("Sign-in failed: " + (e.message || e.code || "unknown error"));
+    }
+  }
 }
 
-function onSaveElVoices() {
-  const maya = $("#s_elVoiceMaya").value.trim();
-  const vanessa = $("#s_elVoiceVanessa").value.trim();
-  if (maya) localStorage.setItem(ELEVEN_VOICE_KEYS.nutrition, maya);
-  else localStorage.removeItem(ELEVEN_VOICE_KEYS.nutrition);
-  if (vanessa) localStorage.setItem(ELEVEN_VOICE_KEYS.gym, vanessa);
-  else localStorage.removeItem(ELEVEN_VOICE_KEYS.gym);
-  toast("Voice IDs saved" + (!maya && !vanessa ? " — both coaches back on Deepgram" : ""));
+async function signOut() {
+  try { await auth.signOut(); } catch (e) { toast("Sign-out failed: " + e.message, true); }
 }
 
-function onSaveGrokKey() {
-  const v = $("#s_grokKey").value.trim();
-  if (!v) { toast("Paste a key first", true); return; }
-  localStorage.setItem(KEY_GROK, v);
-  $("#s_grokKey").value = "";
-  $("#grokPill").hidden = false;
-  toast("Image key saved — generate fresh avatars anytime");
+/* ---------- one-time legacy migration (flat collections → users/{uid}/) ---------- */
+// Idempotent: a done-flag at users/{uid}/settings/migration gates re-runs.
+// Copies docs preserving IDs, verifies counts, never deletes the legacy data
+// (Ethan deletes it manually in the Firebase console after verifying).
+async function migrateLegacy() {
+  const flagRef = db.collection(ucol("settings")).doc("migration");
+  try {
+    const flag = await flagRef.get();
+    if (flag.exists && flag.data() && flag.data().done) return;
+  } catch (e) { /* flag read failed — fall through and try anyway */ }
+
+  const counts = {};
+  const flat = ["weights", "photos", "meals", "measurements", "workouts"];
+  const copyCol = async (fromPath, toPath) => {
+    const snap = await db.collection(fromPath).get();
+    if (snap.empty) { return 0; }
+    let n = 0;
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const batch = db.batch();
+      snap.docs.slice(i, i + 400).forEach((d) => {
+        batch.set(db.collection(toPath).doc(d.id), d.data());
+      });
+      await batch.commit();
+      n += snap.docs.slice(i, i + 400).length;
+    }
+    // verify
+    const check = await db.collection(toPath).get();
+    if (check.size < snap.size) throw new Error("Migration verify failed for " + fromPath + " (" + check.size + "/" + snap.size + ")");
+    return n;
+  };
+
+  try {
+    for (const c of flat) counts[c] = await copyCol(c, ucol(c));
+    for (const coach of ["nutrition", "gym"]) {
+      counts["chats/" + coach] = await copyCol("chats/" + coach + "/messages", ucol("chats") + "/" + coach + "/messages");
+    }
+    for (const d of ["profile", "avatars"]) {
+      const doc = await db.collection("settings").doc(d).get();
+      if (doc.exists) {
+        await db.collection(ucol("settings")).doc(d).set(doc.data());
+        counts["settings/" + d] = 1;
+      }
+    }
+  } catch (e) {
+    if (e && (e.code === "permission-denied" || /permission/i.test(e.message || ""))) {
+      // Brand-new user (or legacy already locked down) — nothing to migrate.
+      counts.skipped = "legacy not readable";
+    } else {
+      throw e;
+    }
+  }
+  await flagRef.set({ done: true, at: new Date().toISOString(), counts });
 }
 
 /* ---------- PWA: splash, logo, install, service worker ---------- */
@@ -2499,11 +2382,8 @@ function wireEvents() {
     if (e.target === $("#viewer")) { $("#viewer").hidden = true; state.viewerId = null; }
   });
   $("#saveProfile").addEventListener("click", onSaveProfile);
-  $("#saveKey").addEventListener("click", onSaveKey);
-  $("#saveDgKey").addEventListener("click", onSaveDgKey);
-  $("#saveElKey").addEventListener("click", onSaveElKey);
-  $("#saveElVoices").addEventListener("click", onSaveElVoices);
-  $("#saveGrokKey").addEventListener("click", onSaveGrokKey);
+  $("#signOutBtn").addEventListener("click", signOut);
+  $("#googleSignInBtn").addEventListener("click", signInWithGoogle);
   $("#regenAvatars").addEventListener("click", regenerateAvatars);
   $("#settingsBtn").addEventListener("click", () => go("settings"));
   $("#fsToggle").addEventListener("click", toggleFullscreen);
@@ -2542,10 +2422,42 @@ async function boot() {
   setupInstall();
   registerSW();
   wireEvents();
-  if (!db) {
+  if (!db || !auth || !fns) {
     toast("Firebase failed to initialize — check your connection", true);
     return;
   }
+
+  // Auth gate: nothing loads until a user is signed in. onAuthStateChanged
+  // also fires after signInWithRedirect returns the user to the app.
+  let started = false;
+  auth.onAuthStateChanged(async (user) => {
+    if (!user) {
+      const wasStarted = started;
+      started = false;
+      state.uid = null;
+      state.userEmail = null;
+      if (wasStarted) { location.reload(); return; } // clean state for the next sign-in
+      showAuthGate();
+      return;
+    }
+    state.uid = user.uid;
+    state.userEmail = user.email || null;
+    if (started) return; // token refresh re-fires this — don't reload the app
+    started = true;
+    try {
+      await migrateLegacy();
+    } catch (e) {
+      console.error("migration failed:", e);
+      showAuthGate("Migration failed: " + e.message + " — tell Ethan before retrying.");
+      try { await auth.signOut(); } catch (e2) { /* noop */ }
+      return;
+    }
+    hideAuthGate();
+    await startApp();
+  });
+}
+
+async function startApp() {
   try {
     await Promise.all([
       loadProfile(),
@@ -2559,7 +2471,13 @@ async function boot() {
       loadAvatars(),
     ]);
   } catch (e) {
-    toast("Could not load data: " + e.message + " — check Firestore is enabled and rules allow read/write", true);
+    if (e && (e.code === "permission-denied" || /permission|insufficient/i.test(e.message || ""))) {
+      showAuthGate("This account isn't on the GutCheck allowlist yet — ask Ethan to add " +
+        (state.userEmail || "this email") + ", then sign in again.");
+      try { await auth.signOut(); } catch (e2) { /* noop */ }
+      return;
+    }
+    toast("Could not load data: " + e.message + " — check your connection", true);
   }
   renderDashboard();
   renderPhotos();

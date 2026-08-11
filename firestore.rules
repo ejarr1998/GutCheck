@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function email() { return request.auth.token.email.lower(); }
+
+    // ---- THE ALLOWLIST: add each approved Google email here (max 6) ----
+    // One quoted email per line, comma between entries, NO comma after the last one.
+    // This list MUST stay in sync with ALLOWED_EMAILS in functions/index.js.
+    function isAllowed() {
+      return isSignedIn() && email() in [
+        "REPLACE_ME_user2@example.com",
+        "ejarr1998@gmail.com"
+      ];
+    }
+
+    function isOwner(uid) { return isAllowed() && request.auth.uid == uid; }
+
+    // Per-user namespace: every account's data lives under users/{uid}/...
+    // and is readable/writable ONLY by that uid (and only if allowlisted).
+    match /users/{uid}/{document=**} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // Legacy flat collections — readable/writable by the admin email only,
+    // kept alive solely so the first-login migration can copy Ethan's data.
+    // Delete these collections in the console after migration is verified.
+    match /{collection}/{document=**} {
+      allow read, write: if isSignedIn()
+        && email() == "ejarr1998@gmail.com"
+        && collection in ["weights", "photos", "meals", "measurements", "workouts", "chats", "settings"];
+    }
+  }
+}

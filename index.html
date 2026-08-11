@@ -16,6 +16,8 @@
 <link rel="manifest" href="manifest.json">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 </head>
 <body>
 
@@ -23,6 +25,15 @@
   <img id="splashLogo" alt="GutCheck logo">
   <div class="splash-word">GutCheck</div>
   <div class="splash-tag">190 → 175 · lock in.</div>
+</div>
+
+<div id="authGate" class="auth-gate" hidden>
+  <div class="auth-card">
+    <div class="auth-word">GutCheck</div>
+    <p class="auth-tag">Private multi-user training &amp; nutrition.<br>Sign in with the Google account Ethan approved.</p>
+    <button class="btn big" id="googleSignInBtn">🔑 Sign in with Google</button>
+    <p class="auth-err" id="authGateErr" hidden></p>
+  </div>
 </div>
 
 <header class="topbar">
@@ -237,37 +248,21 @@
     </div>
 
     <div class="card">
-      <h2 class="card-title">🧠 AI connection <span class="pill" id="aiPill" hidden>connected</span></h2>
-      <p class="sub left">The coaches run on Claude (Anthropic), called straight from your browser — same pattern as your other projects. The key lives only in this browser's localStorage (<code>sandbox_key_claude</code>); if you already saved it on kimis-sandbox, you're done.</p>
-      <label class="full">Anthropic API key<input id="s_apiKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
-      <button class="btn big" id="saveKey">Save key</button>
-      <p class="hint left">Chats are stored in your Firebase project so they sync across devices.</p>
+      <h2 class="card-title">👤 Account</h2>
+      <p class="sub left">Signed in as <b id="accountEmail">…</b>. Your data, coaches, and history are private to this account.</p>
+      <button class="btn ghost big" id="signOutBtn">Sign out</button>
     </div>
 
     <div class="card">
-      <h2 class="card-title">🎙 Voice input (Deepgram) <span class="pill" id="dgPill" hidden>connected</span></h2>
-      <p class="sub left">Tap 🎙 in a chat to talk — transcription uses Nova-3. This key only powers listening now; talking back uses ElevenLabs below if you've set it up, or falls back to Deepgram's Aura-2 otherwise. The key lives only in this browser's localStorage (<code>sandbox_key_deepgram</code>).</p>
-      <label class="full">Deepgram API key<input id="s_dgKey" type="password" placeholder="Deepgram key…" autocomplete="off"></label>
-      <button class="btn big" id="saveDgKey">Save voice key</button>
+      <h2 class="card-title">🧠 AI &amp; voice <span class="pill">connected</span></h2>
+      <p class="sub left">Coaches (Claude), voice in/out (Deepgram + ElevenLabs), and avatar art (Grok) all run through the GutCheck server — no keys to paste, nothing stored in this browser.</p>
     </div>
 
     <div class="card">
-      <h2 class="card-title">🔊 Voice output (ElevenLabs) <span class="pill" id="elPill" hidden>connected</span></h2>
-      <p class="sub left">Better, more human-sounding replies than Aura-2. Grab voice IDs from your <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">Voice Library</a> — availability is per-account, so paste the exact IDs from your library, not a name. Leave a voice ID blank to keep that coach on Deepgram. Keys live only in this browser's localStorage (<code>sandbox_key_elevenlabs</code>).</p>
-      <label class="full">ElevenLabs API key<input id="s_elKey" type="password" placeholder="ElevenLabs key…" autocomplete="off"></label>
-      <button class="btn big" id="saveElKey">Save ElevenLabs key</button>
-      <label class="full" style="margin-top:12px">Maya's voice ID<input id="s_elVoiceMaya" placeholder="e.g. 21m00Tcm4TlvDq8ikWAM" autocomplete="off"></label>
-      <label class="full">Vanessa's voice ID<input id="s_elVoiceVanessa" placeholder="paste voice ID…" autocomplete="off"></label>
-      <button class="btn big" id="saveElVoices">Save voice IDs</button>
-    </div>
-
-    <div class="card">
-      <h2 class="card-title">🎨 Coach avatars (Grok) <span class="pill" id="grokPill" hidden>connected</span></h2>
+      <h2 class="card-title">🎨 Coach avatars</h2>
       <div class="avatar-preview" id="avatarPreview"></div>
-      <p class="sub left">Regenerate the coaches' profile pictures with xAI's Grok image model. New avatars save to Firebase, so they sync to every device. The key lives only in this browser's localStorage (<code>sandbox_key_grok</code>).</p>
-      <label class="full">xAI API key<input id="s_grokKey" type="password" placeholder="xai-…" autocomplete="off"></label>
-      <button class="btn big" id="saveGrokKey">Save image key</button>
-      <button class="btn ghost big" id="regenAvatars" style="margin-top:8px">✨ Generate new coach avatars</button>
+      <p class="sub left">Regenerate the coaches' profile pictures. New avatars save to your account, so they sync to every device.</p>
+      <button class="btn ghost big" id="regenAvatars">✨ Generate new coach avatars</button>
     </div>
 
     <div class="card">
