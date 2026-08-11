@@ -1217,7 +1217,10 @@ function showAvatarFull(coachId) {
   v.hidden = false;
 }
 
-function coachSystemPrompt(coachId) {
+// Split into { stable, dynamic } so the server can mark the stable block with
+// cache_control — the dynamic "logged today" line changes on every log_meal
+// call and would otherwise invalidate the cache on exactly the round we want it.
+function coachSystemParts(coachId) {
   const p = state.profile;
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -1241,31 +1244,37 @@ function coachSystemPrompt(coachId) {
     const todayMeals = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
     const calSoFar = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
     const proteinSoFar = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
-    const mealLine = todayMeals.length
-      ? "\n\nLOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
+    const dynamic = todayMeals.length
+      ? "LOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
         todayMeals.map((m) => m.name || m.description || m.desc || "a logged meal").join(", ") + ". Use this to say what's left for the day, not just the flat daily target."
-      : "\n\nNothing logged yet today — no need to mention this unless it's relevant.";
-    return "You are Maya, an expert sports nutritionist and fat-loss coach." + shared + mealLine +
-      "\n- Stay within the client's calorie and protein targets unless asked otherwise." +
-      "\n- When suggesting meals, include rough calories and protein per item." +
-      "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make." +
-      "\n- STAY IN YOUR LANE: your domain is food — calories, protein, meals, groceries, eating out, cravings, hydration. " +
-      "You work alongside Vanessa, the strength coach, who lives in the Coach tab. " +
-      "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Vanessa's department — ask her in the Coach tab.\" " +
-      "Never write out workout routines, sets, or reps." +
-      "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
-      "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
-      "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
-      "Never claim you logged something without calling the tool.";
+      : "Nothing logged yet today — no need to mention this unless it's relevant.";
+    return {
+      stable: "You are Maya, an expert sports nutritionist and fat-loss coach." + shared +
+        "\n- Stay within the client's calorie and protein targets unless asked otherwise." +
+        "\n- When suggesting meals, include rough calories and protein per item." +
+        "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make." +
+        "\n- STAY IN YOUR LANE: your domain is food — calories, protein, meals, groceries, eating out, cravings, hydration. " +
+        "You work alongside Vanessa, the strength coach, who lives in the Coach tab. " +
+        "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Vanessa's department — ask her in the Coach tab.\" " +
+        "Never write out workout routines, sets, or reps." +
+        "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
+        "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
+        "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
+        "Never claim you logged something without calling the tool.",
+      dynamic,
+    };
   }
-  return "You are Vanessa, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
-    "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
-    "\n- Protect the lower back: coach brace/neutral spine, swap risky movements proactively." +
-    "\n- Account for mono/EBV history: moderate intensity, no grind-to-failure every session." +
-    "\n- STAY IN YOUR LANE: your domain is training — workouts, form, progression, exercise swaps, steps, recovery. " +
-    "You work alongside Maya, the nutritionist, who lives in the Nutritionist tab. " +
-    "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's Maya's department — ask her in the Nutritionist tab.\" " +
-    "Never write out meal plans or calorie breakdowns.";
+  return {
+    stable: "You are Vanessa, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
+      "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
+      "\n- Protect the lower back: coach brace/neutral spine, swap risky movements proactively." +
+      "\n- Account for mono/EBV history: moderate intensity, no grind-to-failure every session." +
+      "\n- STAY IN YOUR LANE: your domain is training — workouts, form, progression, exercise swaps, steps, recovery. " +
+      "You work alongside Maya, the nutritionist, who lives in the Nutritionist tab. " +
+      "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's Maya's department — ask her in the Nutritionist tab.\" " +
+      "Never write out meal plans or calorie breakdowns.",
+    dynamic: "",
+  };
 }
 
 /* ---------- coach brain (server-side proxy) ---------- */
@@ -1283,8 +1292,10 @@ async function callClaude(coachId) {
       ],
     };
   });
+  const parts = coachSystemParts(coachId);
   const res = await fns.httpsCallable("coachCall")({
-    system: coachSystemPrompt(coachId),
+    system: parts.stable,
+    systemDynamic: parts.dynamic,
     messages: history,
     useTools: coachId === "nutrition",
     targets: { calories: state.profile.calories, protein: state.profile.protein },
@@ -2228,12 +2239,21 @@ async function signOut() {
 // Idempotent: a done-flag at users/{uid}/settings/migration gates re-runs.
 // Copies docs preserving IDs, verifies counts, never deletes the legacy data
 // (Ethan deletes it manually in the Firebase console after verifying).
+// Defense in depth: only the admin account ever ATTEMPTS to read the legacy
+// flat collections — don't rely solely on Firestore rules denying the read.
+const ADMIN_EMAIL = "ejarr1998@gmail.com";
 async function migrateLegacy() {
   const flagRef = db.collection(ucol("settings")).doc("migration");
   try {
     const flag = await flagRef.get();
     if (flag.exists && flag.data() && flag.data().done) return;
   } catch (e) { /* flag read failed — fall through and try anyway */ }
+
+  if (String(state.userEmail || "").toLowerCase() !== ADMIN_EMAIL) {
+    // Not Ethan — there is nothing of theirs in the legacy collections.
+    await flagRef.set({ done: true, at: new Date().toISOString(), counts: { skipped: "not admin" } });
+    return;
+  }
 
   const counts = {};
   const flat = ["weights", "photos", "meals", "measurements", "workouts"];
@@ -2269,7 +2289,7 @@ async function migrateLegacy() {
     }
   } catch (e) {
     if (e && (e.code === "permission-denied" || /permission/i.test(e.message || ""))) {
-      // Brand-new user (or legacy already locked down) — nothing to migrate.
+      // Legacy already locked down or removed — nothing to migrate.
       counts.skipped = "legacy not readable";
     } else {
       throw e;
@@ -2472,8 +2492,7 @@ async function startApp() {
     ]);
   } catch (e) {
     if (e && (e.code === "permission-denied" || /permission|insufficient/i.test(e.message || ""))) {
-      showAuthGate("This account isn't on the GutCheck allowlist yet — ask Ethan to add " +
-        (state.userEmail || "this email") + ", then sign in again.");
+      showAuthGate("This account can't reach its data — Firestore rules may not be deployed yet. Tell Ethan, then try again.");
       try { await auth.signOut(); } catch (e2) { /* noop */ }
       return;
     }

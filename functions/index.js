@@ -1,7 +1,7 @@
 /* ============================================================
    GutCheck Cloud Functions — server-side AI proxy
    All four API keys live here as secrets; browsers never see them.
-   Every function: auth verification → email allowlist → per-user
+   Every function: auth verification → per-user
    daily rate cap → uid-scoped Firestore writes (Admin SDK).
    ============================================================ */
 "use strict";
@@ -18,12 +18,6 @@ const DEEPGRAM_API_KEY = defineSecret("DEEPGRAM_API_KEY");
 const ELEVENLABS_API_KEY = defineSecret("ELEVENLABS_API_KEY");
 const XAI_API_KEY = defineSecret("XAI_API_KEY");
 
-// ---- THE ALLOWLIST: must stay in sync with firestore.rules (max 6) ----
-const ALLOWED_EMAILS = [
-  "REPLACE_ME_user2@example.com",
-  "ejarr1998@gmail.com",
-];
-
 const DAILY_CALL_CAP = 150; // per user, across all functions, UTC day
 const CLAUDE_MODEL = "claude-sonnet-4-5";
 const MAX_TOOL_ROUNDS = 4;
@@ -37,14 +31,13 @@ const AURA_VOICES = {
   gym: "aura-2-hera-en",
 };
 
-/* ---------- shared guard: auth + allowlist + daily rate cap ---------- */
+/* ---------- shared guard: auth + per-user daily rate cap ---------- */
+// Open sign-up: any authenticated Google account may call, but every call is
+// uid-scoped server-side (Firestore rules enforce the same on direct reads),
+// and the per-user daily cap limits API-cost exposure per account.
 async function guard(request) {
   if (!request.auth || !request.auth.uid) {
     throw new HttpsError("unauthenticated", "Sign in first.");
-  }
-  const email = String((request.auth.token && request.auth.token.email) || "").toLowerCase();
-  if (!ALLOWED_EMAILS.includes(email)) {
-    throw new HttpsError("permission-denied", "This account is not on the GutCheck allowlist.");
   }
   const uid = request.auth.uid;
   const day = new Date().toISOString().slice(0, 10); // UTC day
@@ -65,7 +58,8 @@ const MAYA_TOOLS = [{
   name: "log_meal",
   description:
     "Log a meal to the client's daily tracker (Today's fuel card on the dashboard). " +
-    "Use whenever the client asks you to log something they ate, or tells you what they ate expecting it to be tracked.",
+    "Use whenever the client asks you to log something they ate, or tells you what they ate expecting it to be tracked. " +
+    "Only for actual food or drink — never log non-food items, and never log a 0-calorie entry for a real meal; re-estimate or ask instead.",
   input_schema: {
     type: "object",
     properties: {
@@ -139,9 +133,16 @@ async function callAnthropic(apiKey, body) {
 /* ---------- coachCall: Claude chat + Maya's tool loop ---------- */
 exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => {
   const uid = await guard(request);
-  const { system, messages, useTools, targets } = request.data || {};
+  const { system, systemDynamic, messages, useTools, targets } = request.data || {};
   if (typeof system !== "string" || !system || system.length > 8000) {
     throw new HttpsError("invalid-argument", "Missing or oversized system prompt.");
+  }
+  // Stable persona/rules/profile block is cached (ephemeral); the volatile
+  // "logged so far today" line rides as a second, uncached block so logging a
+  // meal doesn't blow the cache on the very next round.
+  const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+  if (typeof systemDynamic === "string" && systemDynamic) {
+    systemBlocks.push({ type: "text", text: systemDynamic });
   }
   if (!Array.isArray(messages) || !messages.length) {
     throw new HttpsError("invalid-argument", "messages must be a non-empty array.");
@@ -157,7 +158,7 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
     const body = {
       model: CLAUDE_MODEL,
       max_tokens: 1200,
-      system,
+      system: systemBlocks,
       messages: history,
     };
     if (useTools) body.tools = MAYA_TOOLS;
