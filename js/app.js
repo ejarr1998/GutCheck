@@ -2410,6 +2410,69 @@ function obAutoTargets() {
   $("#ob_protein").value = pro;
 }
 
+/* ---------- onboarding coach picker: generates all 4 avatars in parallel, ---------- */
+/* lets the user pick by face instead of a gender dropdown */
+const PERSONA_COACH = { maya: "nutrition", marcus: "nutrition", vanessa: "gym", dre: "gym" };
+const PERSONA_GENDER = { maya: "female", marcus: "male", vanessa: "female", dre: "male" };
+const PERSONA_AVATARS = {}; // persona -> data URL, populated during onboarding
+let obSelectedGender = { nutrition: "female", gym: "female" };
+
+function renderPickerCard(persona) {
+  const box = $("#cpcAvatar-" + persona);
+  if (!box) return;
+  while (box.firstChild) box.removeChild(box.firstChild);
+  if (PERSONA_AVATARS[persona]) {
+    const img = document.createElement("img");
+    img.src = PERSONA_AVATARS[persona];
+    img.alt = persona;
+    box.appendChild(img);
+  } else {
+    box.appendChild(el("div", "cpc-spinner"));
+  }
+}
+
+function selectPickerCard(coachId, gender) {
+  obSelectedGender[coachId] = gender;
+  const pickerId = coachId === "nutrition" ? "pickerNutrition" : "pickerGym";
+  $("#" + pickerId).querySelectorAll(".coach-pick-card").forEach((card) => {
+    card.classList.toggle("selected", PERSONA_GENDER[card.dataset.persona] === gender);
+  });
+}
+
+// Fetches any avatars already generated for this account, shows them immediately,
+// then generates whichever of the 4 personas are still missing — all in parallel,
+// so this runs the whole time the user is filling out the rest of the form.
+async function ensureAllAvatarsGenerating() {
+  let existing = {};
+  try {
+    const doc = await db.collection(ucol("settings")).doc("avatars").get();
+    if (doc.exists) existing = doc.data() || {};
+  } catch (e) { /* brand-new account or offline — just generate fresh */ }
+
+  Object.keys(PERSONA_COACH).forEach((persona) => {
+    if (existing[persona]) PERSONA_AVATARS[persona] = existing[persona];
+    renderPickerCard(persona);
+  });
+
+  const missing = Object.keys(PERSONA_COACH).filter((p) => !PERSONA_AVATARS[p]);
+  await Promise.allSettled(missing.map(async (persona) => {
+    try {
+      const res = await fns.httpsCallable("avatarCall")({ prompt: GROK_PROMPTS[persona] });
+      const b64 = res.data && res.data.imageBase64;
+      if (!b64) throw new Error("no image data");
+      const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
+      PERSONA_AVATARS[persona] = small;
+      const patch = {};
+      patch[persona] = small;
+      await db.collection(ucol("settings")).doc("avatars").set(patch, { merge: true });
+      renderPickerCard(persona);
+    } catch (e) {
+      console.warn("avatar generation failed for " + persona + ":", e.message);
+      // leave the spinner — worst case they still pick by name, and Settings can retry later
+    }
+  }));
+}
+
 function openOnboarding() {
   const p = state.profile;
   const existing = state.hasProfileDoc; // Ethan (migrated) pre-fills; brand-new users start clean
@@ -2425,11 +2488,13 @@ function openOnboarding() {
   $("#ob_diet").value = "";
   $("#ob_custom").value = existing ? (p.context || "") : "";
   const g = p.coachGenders || {};
-  $("#ob_genderNutrition").value = g.nutrition || "female";
-  $("#ob_genderGym").value = g.gym || "female";
+  obSelectedGender = { nutrition: g.nutrition || "female", gym: g.gym || "female" };
+  selectPickerCard("nutrition", obSelectedGender.nutrition);
+  selectPickerCard("gym", obSelectedGender.gym);
   $("#ob_calories").value = existing ? (p.calories || "") : "";
   $("#ob_protein").value = existing ? (p.protein || "") : "";
   $("#onboardGate").hidden = false;
+  ensureAllAvatarsGenerating(); // fire-and-forget — runs while they fill out the form
 }
 
 async function saveOnboarding() {
@@ -2478,8 +2543,8 @@ async function saveOnboarding() {
     state.profile.trainingDays = days;
     state.profile.equipment = $("#ob_equipment").value;
     state.profile.coachGenders = {
-      nutrition: $("#ob_genderNutrition").value === "male" ? "male" : "female",
-      gym: $("#ob_genderGym").value === "male" ? "male" : "female",
+      nutrition: obSelectedGender.nutrition === "male" ? "male" : "female",
+      gym: obSelectedGender.gym === "male" ? "male" : "female",
     };
     state.profile.context = parts.join(" ");
     state.profile.onboarded = true;
@@ -2487,8 +2552,25 @@ async function saveOnboarding() {
     state.hasProfileDoc = true;
     applyCoachGenders();
     rebuildCoachPanels();
+    // Avatars for the chosen personas were already generated (or are still
+    // finishing) during onboarding — apply whatever's ready now instantly,
+    // no need to regenerate.
+    const nPersona = obSelectedGender.nutrition === "male" ? "marcus" : "maya";
+    const gPersona = obSelectedGender.gym === "male" ? "dre" : "vanessa";
+    if (PERSONA_AVATARS[nPersona]) { AVATARS.nutrition = PERSONA_AVATARS[nPersona]; localStorage.setItem(avatarCacheKey("nutrition"), PERSONA_AVATARS[nPersona]); }
+    if (PERSONA_AVATARS[gPersona]) { AVATARS.gym = PERSONA_AVATARS[gPersona]; localStorage.setItem(avatarCacheKey("gym"), PERSONA_AVATARS[gPersona]); }
+    applyAvatars();
+    // Full re-render, matching what a fresh boot does — without this, other
+    // tabs (Photos, both coach chats, both heatmaps) stayed stale until the
+    // user manually refreshed the page after finishing onboarding.
     renderDashboard();
+    renderPhotos();
+    renderHeatmap();
+    renderFoodHeatmap();
+    renderChat("nutrition");
+    renderChat("gym");
     renderSettings();
+    renderAvatarPreview();
     $("#onboardGate").hidden = true;
     toast("Setup saved — meet " + COACHES.nutrition.short + " and " + COACHES.gym.short + "!");
   } catch (e) {
@@ -2707,6 +2789,11 @@ function wireEvents() {
   $("#googleSignInBtn").addEventListener("click", signInWithGoogle);
   $("#onboardSave").addEventListener("click", saveOnboarding);
   $("#redoOnboard").addEventListener("click", openOnboarding);
+  $("#onboardGate").addEventListener("click", (e) => {
+    const card = e.target.closest(".coach-pick-card");
+    if (!card) return;
+    selectPickerCard(card.dataset.coach, PERSONA_GENDER[card.dataset.persona]);
+  });
   ["ob_height", "ob_age", "ob_startWeight", "ob_goalWeight", "ob_sex", "ob_goal", "ob_activity"].forEach((id) => {
     $("#" + id).addEventListener("input", obAutoTargets);
     $("#" + id).addEventListener("change", obAutoTargets);

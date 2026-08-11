@@ -71,19 +71,32 @@
           <option value="both">Mix of both</option>
         </select>
       </label>
-      <label>Nutritionist
-        <select id="ob_genderNutrition">
-          <option value="female">Maya (female)</option>
-          <option value="male">Marcus (male)</option>
-        </select>
+      <label class="full">Nutritionist
+        <div class="coach-picker" id="pickerNutrition">
+          <button type="button" class="coach-pick-card" data-persona="maya" data-coach="nutrition">
+            <div class="cpc-avatar" id="cpcAvatar-maya"><div class="cpc-spinner"></div></div>
+            <div class="cpc-name">Maya</div>
+          </button>
+          <button type="button" class="coach-pick-card" data-persona="marcus" data-coach="nutrition">
+            <div class="cpc-avatar" id="cpcAvatar-marcus"><div class="cpc-spinner"></div></div>
+            <div class="cpc-name">Marcus</div>
+          </button>
+        </div>
       </label>
-      <label>Trainer
-        <select id="ob_genderGym">
-          <option value="female">Vanessa (female)</option>
-          <option value="male">Dre (male)</option>
-        </select>
+      <label class="full">Trainer
+        <div class="coach-picker" id="pickerGym">
+          <button type="button" class="coach-pick-card" data-persona="vanessa" data-coach="gym">
+            <div class="cpc-avatar" id="cpcAvatar-vanessa"><div class="cpc-spinner"></div></div>
+            <div class="cpc-name">Vanessa</div>
+          </button>
+          <button type="button" class="coach-pick-card" data-persona="dre" data-coach="gym">
+            <div class="cpc-avatar" id="cpcAvatar-dre"><div class="cpc-spinner"></div></div>
+            <div class="cpc-name">Dre</div>
+          </button>
+        </div>
       </label>
     </div>
+    <p class="hint left">Your coaches' photos are generating in the background while you fill this out — pick whichever face fits once they're ready.</p>
 
     <label class="full">Injuries, limitations, health notes
       <textarea id="ob_injuries" rows="2" placeholder="e.g. lower-back issues — avoid heavy spinal loading"></textarea>
