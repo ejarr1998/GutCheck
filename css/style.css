@@ -491,6 +491,17 @@ body.kbd-open .tabbar { display: none; }
   overflow-y: auto; text-align: left; padding: 20px;
 }
 .onboard-card select { width: 100%; }
+.confirm-gate {
+  position: fixed; inset: 0; z-index: 250; background: rgba(0,0,0,.72);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.confirm-card {
+  background: var(--card2); border: 1px solid var(--border); border-radius: 16px;
+  max-width: 340px; width: 100%; padding: 20px; text-align: center;
+}
+.confirm-msg { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.5; margin-bottom: 16px; }
+.confirm-btns { justify-content: center; }
+.btn.danger { background: #b91c1c; color: #fff; }
 #splash.gone { opacity: 0; pointer-events: none; }
 #splashLogo {
   width: 108px; height: 108px; border-radius: 26px;

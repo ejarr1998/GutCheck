@@ -467,6 +467,7 @@ function renderWeightLog() {
     const del = el("button", "del", "✕");
     del.title = "Delete entry";
     del.addEventListener("click", async () => {
+      if (!(await confirmAction("Delete the " + w.weight + " lbs entry from " + fmtDayShort(w.loggedAt) + "? This can't be undone."))) return;
       try {
         await db.collection(ucol("weights")).doc(w.id).delete();
         state.weights = state.weights.filter((x) => x.id !== w.id);
@@ -696,7 +697,29 @@ async function saveMealEntry() {
   }
 }
 
+// Promise-based "are you sure?" dialog — blocks accidental one-tap deletes.
+function confirmAction(msg) {
+  return new Promise((resolve) => {
+    const gate = $("#confirmGate");
+    $("#confirmMsg").textContent = msg;
+    gate.hidden = false;
+    const yes = $("#confirmYes");
+    const no = $("#confirmNo");
+    const done = (val) => {
+      gate.hidden = true;
+      yes.onclick = null;
+      no.onclick = null;
+      resolve(val);
+    };
+    yes.onclick = () => done(true);
+    no.onclick = () => done(false);
+  });
+}
+
 async function deleteMeal(id) {
+  const meal = state.meals.find((m) => m.id === id);
+  const label = meal ? (meal.description || "this meal") : "this meal";
+  if (!(await confirmAction("Delete \"" + label + "\" from your food log? This can't be undone."))) return;
   try {
     await db.collection(ucol("meals")).doc(id).delete();
     state.meals = state.meals.filter((m) => m.id !== id);
@@ -895,6 +918,7 @@ function openViewer(id) {
 async function deleteViewerPhoto() {
   const id = state.viewerId;
   if (!id) return;
+  if (!(await confirmAction("Delete this progress photo? This can't be undone."))) return;
   try {
     await db.collection(ucol("photos")).doc(id).delete();
     state.photos = state.photos.filter((p) => p.id !== id);
@@ -2330,6 +2354,7 @@ async function sendCoachMessage(coachId, text) {
 }
 
 async function clearChat(coachId) {
+  if (!(await confirmAction("Clear your entire conversation with " + COACHES[coachId].short + "? This can't be undone."))) return;
   try {
     const snap = await db.collection(ucol("chats")).doc(coachId).collection("messages").get();
     const batch = db.batch();
