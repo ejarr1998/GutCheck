@@ -232,11 +232,13 @@ function renderDashboard() {
   $("#statProtein").textContent = p.protein + "g";
   $("#statPhotos").textContent = String(state.photos.length);
 
-  // baby countdown
+  // baby countdown (dashboard card)
   if (p.babyDue) {
-    const days = Math.max(0, Math.ceil((new Date(p.babyDue + "T00:00:00") - Date.now()) / 86400000));
+    const due = new Date(p.babyDue + "T00:00:00");
+    const days = Math.max(0, Math.ceil((due - Date.now()) / 86400000));
     $("#babyDays").textContent = String(days);
-    $("#babyChip").hidden = false;
+    $("#babyDueLabel").textContent = "due " + due.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+    $("#babyCard").hidden = false;
   }
 
   renderChart();
@@ -593,6 +595,34 @@ function buildCoachPanel(coachId) {
   });
   panel.appendChild(bar);
   panel.appendChild(el("p", "chat-disclaimer", "AI coach, not a doctor. It knows your targets from Settings."));
+
+  // floating jump buttons: back to top / back to the chat box
+  const jumps = el("div", "jump-btns");
+  jumps.id = "jumpBtns-" + coachId;
+  jumps.hidden = true;
+  const jt = el("button", "jump-fab", "↑");
+  jt.type = "button"; jt.id = "jumpTop-" + coachId; jt.title = "Jump to top";
+  jt.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+  const jb = el("button", "jump-fab", "↓");
+  jb.type = "button"; jb.id = "jumpInput-" + coachId; jb.title = "Jump to the chat box";
+  jb.addEventListener("click", () => {
+    const input = $("#chatInput-" + coachId);
+    if (input) input.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  jumps.appendChild(jt);
+  jumps.appendChild(jb);
+  panel.appendChild(jumps);
+}
+
+function setupJumpBtns() {
+  window.addEventListener("scroll", () => {
+    ["nutrition", "gym"].forEach((id) => {
+      const j = $("#jumpBtns-" + id);
+      const panel = $("#panel-" + id);
+      if (!j || !panel) return;
+      j.hidden = panel.hidden || window.scrollY < 320;
+    });
+  }, { passive: true });
 }
 
 function scrollChatBottom(coachId, smooth) {
@@ -1820,6 +1850,7 @@ async function boot() {
   wkRestore();
   ckRestore();
   buildTimerUI();
+  setupJumpBtns();
   setupInstall();
   registerSW();
   wireEvents();
