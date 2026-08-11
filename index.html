@@ -243,10 +243,20 @@
     </div>
 
     <div class="card">
-      <h2 class="card-title">🎙 Voice (Deepgram) <span class="pill" id="dgPill" hidden>connected</span></h2>
-      <p class="sub left">Gives the coaches ears and voices: tap 🎙 in a chat to talk, tap 🔊 on any reply to hear it. Maya speaks as <b>Thalia</b>, Vanessa as <b>Hera</b> (Aura-2). Transcription uses Nova-3. The key lives only in this browser's localStorage (<code>sandbox_key_deepgram</code>).</p>
+      <h2 class="card-title">🎙 Voice input (Deepgram) <span class="pill" id="dgPill" hidden>connected</span></h2>
+      <p class="sub left">Tap 🎙 in a chat to talk — transcription uses Nova-3. This key only powers listening now; talking back uses ElevenLabs below if you've set it up, or falls back to Deepgram's Aura-2 otherwise. The key lives only in this browser's localStorage (<code>sandbox_key_deepgram</code>).</p>
       <label class="full">Deepgram API key<input id="s_dgKey" type="password" placeholder="Deepgram key…" autocomplete="off"></label>
       <button class="btn big" id="saveDgKey">Save voice key</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">🔊 Voice output (ElevenLabs) <span class="pill" id="elPill" hidden>connected</span></h2>
+      <p class="sub left">Better, more human-sounding replies than Aura-2. Grab voice IDs from your <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">Voice Library</a> — availability is per-account, so paste the exact IDs from your library, not a name. Leave a voice ID blank to keep that coach on Deepgram. Keys live only in this browser's localStorage (<code>sandbox_key_elevenlabs</code>).</p>
+      <label class="full">ElevenLabs API key<input id="s_elKey" type="password" placeholder="ElevenLabs key…" autocomplete="off"></label>
+      <button class="btn big" id="saveElKey">Save ElevenLabs key</button>
+      <label class="full" style="margin-top:12px">Maya's voice ID<input id="s_elVoiceMaya" placeholder="e.g. 21m00Tcm4TlvDq8ikWAM" autocomplete="off"></label>
+      <label class="full">Vanessa's voice ID<input id="s_elVoiceVanessa" placeholder="paste voice ID…" autocomplete="off"></label>
+      <button class="btn big" id="saveElVoices">Save voice IDs</button>
     </div>
 
     <div class="card">

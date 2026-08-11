@@ -44,7 +44,9 @@ function toast(msg, isErr) {
 
 /* ---------- constants ---------- */
 const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
-const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT + TTS
+const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT only now (TTS moved to ElevenLabs when configured)
+const KEY_ELEVEN = "sandbox_key_elevenlabs"; // voice: TTS (better quality than Aura-2)
+const ELEVEN_VOICE_KEYS = { nutrition: "sandbox_elevenlabs_voice_nutrition", gym: "sandbox_elevenlabs_voice_gym" };
 const KEY_GROK = "sandbox_key_grok"; // xAI image generation (coach avatars)
 const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-hera-en" }; // Maya / Vanessa (female Aura-2 voices) — "stella" doesn't exist in Aura-2, only legacy Aura-1
 const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
@@ -1365,9 +1367,17 @@ async function callClaude(coachId) {
   return lastText || "Done — check Today's fuel on the Home tab for what I logged.";
 }
 
-/* ---------- voice (Deepgram: nova-3 STT + aura-2 TTS) ---------- */
+/* ---------- voice (Deepgram nova-3 STT; ElevenLabs TTS when configured, else Aura-2) ---------- */
 function deepgramKey() {
   return localStorage.getItem(KEY_DEEPGRAM) || "";
+}
+
+function elevenKey() {
+  return localStorage.getItem(KEY_ELEVEN) || "";
+}
+
+function elevenVoiceId(coachId) {
+  return localStorage.getItem(ELEVEN_VOICE_KEYS[coachId] || ELEVEN_VOICE_KEYS.nutrition) || "";
 }
 
 function pickMime() {
@@ -1496,8 +1506,10 @@ async function speakText(coachId, text, btn) {
     return;
   }
   stopSpeaking();
-  if (!deepgramKey()) {
-    toast("Add your Deepgram key first (Settings ⚙️ → Voice)", true);
+
+  const useEleven = !!(elevenKey() && elevenVoiceId(coachId));
+  if (!useEleven && !deepgramKey()) {
+    toast("Add a voice key first (Settings ⚙️ → Voice output/input)", true);
     return;
   }
   if (btn) {
@@ -1506,8 +1518,7 @@ async function speakText(coachId, text, btn) {
     state.voice.speakBtn = btn;
   }
   try {
-    const voice = COACH_VOICES[coachId] || COACH_VOICES.nutrition;
-    // Deepgram speak accepts ~2000 chars per call — split long replies on sentence boundaries
+    // ElevenLabs (10k char cap) vs Deepgram Aura-2 (~2k) — chunk conservatively either way
     const chunks = [];
     let rest = ttsClean(text);
     while (rest.length > 1800) {
@@ -1519,19 +1530,41 @@ async function speakText(coachId, text, btn) {
     if (rest) chunks.push(rest);
 
     for (const chunk of chunks) {
-      const res = await fetch("https://api.deepgram.com/v1/speak?model=" + voice, {
-        method: "POST",
-        headers: {
-          Authorization: "Token " + deepgramKey(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ text: chunk }),
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error("Deepgram TTS " + res.status + ": " + t.slice(0, 160));
+      let audioBlob;
+      if (useEleven) {
+        const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + elevenVoiceId(coachId), {
+          method: "POST",
+          headers: {
+            "xi-api-key": elevenKey(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: chunk,
+            model_id: "eleven_multilingual_v2",
+            voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+          }),
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error("ElevenLabs TTS " + res.status + ": " + t.slice(0, 160));
+        }
+        audioBlob = await res.blob();
+      } else {
+        const voice = COACH_VOICES[coachId] || COACH_VOICES.nutrition;
+        const res = await fetch("https://api.deepgram.com/v1/speak?model=" + voice, {
+          method: "POST",
+          headers: {
+            Authorization: "Token " + deepgramKey(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: chunk }),
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error("Deepgram TTS " + res.status + ": " + t.slice(0, 160));
+        }
+        audioBlob = await res.blob();
       }
-      const audioBlob = await res.blob();
       const url = URL.createObjectURL(audioBlob);
       await new Promise((resolve) => {
         const a = new Audio(url);
@@ -2261,6 +2294,9 @@ function renderSettings() {
   $("#aiPill").hidden = !localStorage.getItem(KEY_CLAUDE);
   $("#dgPill").hidden = !localStorage.getItem(KEY_DEEPGRAM);
   $("#grokPill").hidden = !localStorage.getItem(KEY_GROK);
+  $("#elPill").hidden = !localStorage.getItem(KEY_ELEVEN);
+  $("#s_elVoiceMaya").value = localStorage.getItem(ELEVEN_VOICE_KEYS.nutrition) || "";
+  $("#s_elVoiceVanessa").value = localStorage.getItem(ELEVEN_VOICE_KEYS.gym) || "";
   renderAvatarPreview();
 }
 
@@ -2289,6 +2325,25 @@ function onSaveDgKey() {
   $("#s_dgKey").value = "";
   $("#dgPill").hidden = false;
   toast("Voice key saved — tap 🎙 in any coach chat");
+}
+
+function onSaveElKey() {
+  const v = $("#s_elKey").value.trim();
+  if (!v) { toast("Paste a key first", true); return; }
+  localStorage.setItem(KEY_ELEVEN, v);
+  $("#s_elKey").value = "";
+  $("#elPill").hidden = false;
+  toast("ElevenLabs key saved");
+}
+
+function onSaveElVoices() {
+  const maya = $("#s_elVoiceMaya").value.trim();
+  const vanessa = $("#s_elVoiceVanessa").value.trim();
+  if (maya) localStorage.setItem(ELEVEN_VOICE_KEYS.nutrition, maya);
+  else localStorage.removeItem(ELEVEN_VOICE_KEYS.nutrition);
+  if (vanessa) localStorage.setItem(ELEVEN_VOICE_KEYS.gym, vanessa);
+  else localStorage.removeItem(ELEVEN_VOICE_KEYS.gym);
+  toast("Voice IDs saved" + (!maya && !vanessa ? " — both coaches back on Deepgram" : ""));
 }
 
 function onSaveGrokKey() {
@@ -2404,6 +2459,8 @@ function wireEvents() {
   $("#saveProfile").addEventListener("click", onSaveProfile);
   $("#saveKey").addEventListener("click", onSaveKey);
   $("#saveDgKey").addEventListener("click", onSaveDgKey);
+  $("#saveElKey").addEventListener("click", onSaveElKey);
+  $("#saveElVoices").addEventListener("click", onSaveElVoices);
   $("#saveGrokKey").addEventListener("click", onSaveGrokKey);
   $("#regenAvatars").addEventListener("click", regenerateAvatars);
   $("#settingsBtn").addEventListener("click", () => go("settings"));
