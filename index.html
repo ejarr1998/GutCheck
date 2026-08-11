@@ -33,10 +33,6 @@
   <div class="topbar-right">
     <button class="fs-btn subtle" id="settingsBtn" title="Settings" aria-label="Settings">⚙️</button>
     <button class="fs-btn" id="fsToggle" title="Full screen" aria-label="Toggle full screen">⛶</button>
-    <div class="baby-chip" id="babyChip" hidden>
-      <span aria-hidden="true">👶</span>
-      <span><b id="babyDays">–</b> days to baby</span>
-    </div>
   </div>
 </header>
 
@@ -47,6 +43,11 @@
     <div class="page-head">
       <h1 id="dashTitle">Day one energy</h1>
       <p class="sub" id="dashSub"></p>
+    </div>
+
+    <div class="card baby-card" id="babyCard" hidden>
+      <div class="baby-big">👶 <b id="babyDays">–</b> days to baby</div>
+      <div class="tiny muted" id="babyDueLabel"></div>
     </div>
 
     <div class="card">
