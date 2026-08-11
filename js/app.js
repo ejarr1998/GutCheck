@@ -1229,7 +1229,11 @@ function coachSystemPrompt(coachId) {
       "\n- STAY IN YOUR LANE: your domain is food — calories, protein, meals, groceries, eating out, cravings, hydration. " +
       "You work alongside Dre, the strength coach, who lives in the Coach tab. " +
       "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Dre's department — ask her in the Coach tab.\" " +
-      "Never write out workout routines, sets, or reps.";
+      "Never write out workout routines, sets, or reps." +
+      "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
+      "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
+      "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
+      "Never claim you logged something without calling the tool.";
   }
   return "You are Dre, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
     "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
@@ -1239,6 +1243,54 @@ function coachSystemPrompt(coachId) {
     "You work alongside Maya, the nutritionist, who lives in the Nutritionist tab. " +
     "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's Maya's department — ask her in the Nutritionist tab.\" " +
     "Never write out meal plans or calorie breakdowns.";
+}
+
+/* ---------- Maya's meal-logging tool (native tool use, nutrition coach only) ---------- */
+const MAYA_TOOLS = [{
+  name: "log_meal",
+  description:
+    "Log a meal to the client's daily tracker (Today's fuel card on the dashboard). " +
+    "Use whenever the client asks you to log something they ate, or tells you what they ate expecting it to be tracked.",
+  input_schema: {
+    type: "object",
+    properties: {
+      description: { type: "string", description: "Short 3-6 word name for the meal" },
+      calories: { type: "number", description: "Estimated total calories (integer)" },
+      protein: { type: "number", description: "Estimated grams of protein (integer)" },
+    },
+    required: ["description", "calories", "protein"],
+  },
+}];
+
+// Executes one tool_use block from Maya. Returns the tool_result content string —
+// either a confirmation with the new daily total, or a rejection she can react to.
+async function runMayaTool(name, input) {
+  if (name !== "log_meal") return "Unknown tool: " + name;
+  const cal = Math.round(Number(input.calories));
+  const pro = Math.round(Number(input.protein));
+  if (!cal || cal < 1 || cal > 10000) {
+    return "Rejected: calories (" + input.calories + ") is not a plausible number. Ask the client for clarification or re-estimate, then try again.";
+  }
+  if (isNaN(pro) || pro < 0 || pro > 500) {
+    return "Rejected: protein (" + input.protein + ") is not a plausible number. Re-estimate and try again.";
+  }
+  const entry = {
+    loggedAt: new Date().toISOString(),
+    description: String(input.description || "Meal").slice(0, 80),
+    calories: cal,
+    protein: pro,
+    source: "maya",
+  };
+  const ref = await db.collection("meals").add(entry);
+  state.meals.push({ id: ref.id, ...entry });
+  renderMealTotals();
+  const todayKey = dayKey(new Date().toISOString());
+  const today = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
+  const calSoFar = Math.round(today.reduce((s, m) => s + (m.calories || 0), 0));
+  const proSoFar = Math.round(today.reduce((s, m) => s + (m.protein || 0), 0));
+  return "Logged: " + entry.description + " (" + cal + " kcal, " + pro + "g protein). " +
+    "Today's totals are now " + calSoFar + " kcal and " + proSoFar + "g protein against targets of " +
+    state.profile.calories + " kcal and " + state.profile.protein + "g.";
 }
 
 async function callClaude(coachId) {
@@ -1259,29 +1311,58 @@ async function callClaude(coachId) {
       ],
     };
   });
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
+
+  // Tool-use loop: Maya can call log_meal mid-conversation. Each round we send the
+  // conversation; if she answers with tool_use blocks we execute them, append the
+  // results, and go again until she replies with plain text. Cap rounds as a safety valve.
+  const MAX_TOOL_ROUNDS = 4;
+  let lastText = "";
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+    const body = {
       model: "claude-sonnet-4-5",
       max_tokens: 1200,
       system: coachSystemPrompt(coachId),
       messages: history,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error("Claude API " + res.status + ": " + text.slice(0, 200));
+    };
+    if (coachId === "nutrition") body.tools = MAYA_TOOLS;
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error("Claude API " + res.status + ": " + text.slice(0, 200));
+    }
+    const data = await res.json();
+    const blocks = data.content || [];
+    lastText = blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (data.stop_reason !== "tool_use") {
+      if (!lastText) throw new Error("Claude returned an empty response");
+      return lastText;
+    }
+    // execute every tool call in this turn, then feed the results back
+    history.push({ role: "assistant", content: blocks });
+    const results = [];
+    for (const b of blocks) {
+      if (b.type !== "tool_use") continue;
+      let out;
+      try {
+        out = await runMayaTool(b.name, b.input || {});
+      } catch (e) {
+        out = "Tool failed: " + e.message;
+      }
+      results.push({ type: "tool_result", tool_use_id: b.id, content: out });
+    }
+    history.push({ role: "user", content: results });
   }
-  const data = await res.json();
-  const out = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-  if (!out) throw new Error("Claude returned an empty response");
-  return out;
+  // hit the round cap — the tool calls still happened, so tell the user what changed
+  return lastText || "Done — check Today's fuel on the Home tab for what I logged.";
 }
 
 /* ---------- voice (Deepgram: nova-3 STT + aura-2 TTS) ---------- */
