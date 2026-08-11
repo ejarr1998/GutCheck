@@ -2322,8 +2322,12 @@ async function saveOnboarding() {
   const goalWeight = $("#ob_goalWeight").value.trim();
   const calories = $("#ob_calories").value.trim();
   const protein = $("#ob_protein").value.trim();
+  const errBox = $("#onboardErr");
+  if (errBox) errBox.hidden = true;
   if (!height || !age || !startWeight || !goalWeight || !calories || !protein) {
-    toast("Fill in height, age, weights, and targets (tap any field above to auto-calc)", true);
+    const msg = "Fill in height, age, current + goal weight, and your targets (edit any field above and calories/protein auto-calculate).";
+    if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
+    toast(msg, true);
     return;
   }
   const actLabel = { "1.3": "mostly sedentary", "1.45": "moderately active", "1.6": "very active" }[$("#ob_activity").value] || "moderately active";
@@ -2422,7 +2426,10 @@ async function migrateLegacy() {
   const flagRef = db.collection(ucol("settings")).doc("migration");
   try {
     const flag = await flagRef.get();
-    if (flag.exists && flag.data() && flag.data().done) return;
+    const d = flag.exists ? flag.data() : null;
+    // A flag written with counts.skipped (legacy unreadable at the time) must NOT
+    // block a later retry — e.g. rules fixed after the fact.
+    if (d && d.done && !(d.counts && d.counts.skipped)) return;
   } catch (e) { /* flag read failed — fall through and try anyway */ }
 
   if (String(state.userEmail || "").toLowerCase() !== ADMIN_EMAIL) {

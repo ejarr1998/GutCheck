@@ -358,7 +358,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
 /* ---------- toast ---------- */
 .toast {
   position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
-  z-index: 80; background: var(--card2); border: 1px solid var(--lime);
+  z-index: 300; background: var(--card2); border: 1px solid var(--lime);
   color: var(--text); border-radius: 12px; padding: 11px 18px;
   font-size: 13.5px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
   max-width: 90vw; text-align: center;
