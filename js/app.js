@@ -335,26 +335,6 @@ function renderDashboard() {
   renderMeasurements();
   renderMealTotals();
   renderFoodHeatmap();
-  maybeShowStreakReminder(wStreak, pStreak);
-}
-
-// Gentle evening nudge if today's weigh-in or photo is still missing.
-// Client-side only (checked on each dashboard render / app open) — this app
-// has no push notification backend, so it can only remind you while it's open.
-let streakReminderShownThisLoad = false;
-function maybeShowStreakReminder(wStreak, pStreak) {
-  if (streakReminderShownThisLoad) return;
-  const hour = new Date().getHours();
-  if (hour < 18) return; // only nudge in the evening
-  const todayKey = dayKey(new Date().toISOString());
-  const loggedWeightToday = state.weights.some((w) => dayKey(w.loggedAt) === todayKey);
-  const loggedPhotoToday = state.photos.some((p) => dayKey(p.takenAt) === todayKey);
-  if (loggedWeightToday && loggedPhotoToday) return;
-  streakReminderShownThisLoad = true;
-  const missing = [];
-  if (!loggedWeightToday) missing.push(wStreak + "-day weigh-in streak");
-  if (!loggedPhotoToday) missing.push(pStreak + "-day photo streak");
-  toast("Evening check — don't lose your " + missing.join(" or your ") + " today.");
 }
 
 // 7-day trailing average, keyed to each raw entry's date (so short histories
