@@ -184,7 +184,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
 .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .compare-grid img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 10px; }
 .compare-grid .cap { text-align: center; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
-.compare-grid .cap b { color: var(--text); text-transform: capitalize; }
+.compare-grid .cap b { text-transform: capitalize; }
 
 .viewer {
   position: fixed; inset: 0; z-index: 60;
@@ -295,9 +295,106 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
 }
 .toast.err { border-color: var(--danger); }
 
+/* ---------- workout timer ---------- */
+.wk-strip {
+  position: fixed; left: 10px; right: 10px; bottom: calc(62px + env(safe-area-inset-bottom)); z-index: 45;
+  display: flex; align-items: center; gap: 7px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 10px; box-shadow: 0 8px 26px rgba(0,0,0,.5);
+}
+.wk-strip.idle {
+  justify-content: center; color: var(--muted);
+  font-size: 13.5px; font-weight: 700; padding: 12px; cursor: pointer;
+}
+.wk-strip.idle:hover { border-color: var(--lime); color: var(--text); }
+.wk-time { font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; }
+.wk-sets { font-size: 12px; color: var(--muted); }
+.wk-btn {
+  background: var(--card2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 9px; font-size: 12.5px; font-weight: 700; padding: 8px 11px; cursor: pointer;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.wk-btn.push { margin-left: auto; }
+.wk-btn.accent { background: var(--lime); color: var(--lime-dark); border-color: var(--lime); }
+.wk-btn.resting { border-color: var(--lime); color: var(--lime); }
+.wk-btn.icon { padding: 8px 10px; }
+.wk-panel {
+  position: fixed; left: 10px; right: 10px; bottom: calc(116px + env(safe-area-inset-bottom)); z-index: 45;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.55);
+}
+.wk-big { font-size: 54px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; line-height: 1; }
+.wk-label { text-align: center; font-size: 11.5px; color: var(--muted); margin: 5px 0 12px; text-transform: uppercase; letter-spacing: .08em; }
+.wk-chips { display: flex; gap: 7px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px; }
+.wk-chip {
+  background: var(--card2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 999px; padding: 7px 13px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+}
+.wk-chip.on { border-color: var(--lime); color: var(--lime); }
+.wk-row { display: flex; gap: 10px; justify-content: center; }
+.wk-flash { animation: wkflash .9s ease; }
+@keyframes wkflash {
+  0%, 100% { border-color: var(--border); }
+  25%, 65% { border-color: var(--lime); box-shadow: 0 0 0 3px rgba(163,230,53,.35); }
+}
+body.wk-on main { padding-bottom: 158px; }
+body.wk-on .chat-input-bar { bottom: 114px; }
+
+/* ---------- coach avatars ---------- */
+.avatar.has-img { background: none; overflow: hidden; padding: 0; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fs-btn.subtle { opacity: .55; font-size: 14px; }
+.fs-btn.subtle:hover { opacity: 1; }
+.avatar-preview { display: flex; gap: 16px; margin: 4px 0 14px; }
+.avatar-preview .ap { text-align: center; font-size: 11.5px; color: var(--muted); }
+.avatar-preview img {
+  width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+  border: 1px solid var(--border); display: block; margin: 0 auto 4px;
+}
+
+/* ---------- chat photo sharing ---------- */
+.chat-img { max-width: 210px; width: 100%; border-radius: 10px; display: block; margin-bottom: 8px; }
+.attach-prev {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 2px 0; font-size: 12px; color: var(--muted);
+}
+.attach-prev img {
+  width: 46px; height: 46px; object-fit: cover; border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.attach-prev .rm {
+  background: none; border: 0; color: var(--muted); font-size: 14px; cursor: pointer; padding: 4px;
+}
+.attach-prev .rm:hover { color: var(--danger); }
+.picker {
+  position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.72);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.picker-sheet {
+  background: var(--card); border: 1px solid var(--border); border-bottom: 0;
+  border-radius: 18px 18px 0 0; width: 100%; max-width: 720px;
+  max-height: 74vh; overflow-y: auto; padding: 16px;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom));
+}
+.picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.picker-head b { font-size: 15px; }
+.picker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.picker-grid .pcell {
+  border: 2px solid transparent; border-radius: 8px; overflow: hidden;
+  cursor: pointer; padding: 0; background: var(--card2); display: block;
+}
+.picker-grid .pcell:hover { border-color: var(--lime); }
+.picker-grid .pcell img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; }
+
+/* ---------- keyboard-aware input (visualViewport) ---------- */
+body.kbd-open .chat-input-bar { bottom: calc(var(--kbd, 0px) + 4px); }
+body.kbd-open .tabbar, body.kbd-open .wk-strip, body.kbd-open .wk-panel { display: none; }
+
 /* ---------- desktop ---------- */
 @media (min-width: 760px) {
   main { padding-top: 28px; }
   .photo-grid { grid-template-columns: repeat(4, 1fr); }
   .chat-input-bar { bottom: 70px; }
+  body.wk-on .chat-input-bar { bottom: 120px; }
+  .wk-strip, .wk-panel { left: auto; right: 24px; width: 430px; }
 }
