@@ -121,10 +121,16 @@ function applyCoachGenders() {
 }
 
 function rebuildCoachPanels() {
+  // These static cards live inside panel-nutrition/panel-gym alongside the
+  // chat UI (food log heatmap, workout heatmap) — preserve them, only clear
+  // and rebuild the chat-specific elements that buildCoachPanel() creates.
+  const PRESERVE_IDS = ["foodLogCard", "heatmapCard"];
   ["nutrition", "gym"].forEach((c) => {
     const panel = $("#panel-" + c);
     if (!panel) return;
-    while (panel.firstChild) panel.removeChild(panel.firstChild);
+    Array.from(panel.children).forEach((child) => {
+      if (!PRESERVE_IDS.includes(child.id)) panel.removeChild(child);
+    });
     buildCoachPanel(c);
     renderChat(c);
   });
