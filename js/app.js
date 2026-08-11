@@ -1400,7 +1400,11 @@ function coachSystemParts(coachId) {
         "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
         "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
         "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
-        "Never claim you logged something without calling the tool.",
+        "Never claim you logged something without calling the tool. " +
+        "\n- VISIBILITY: you CAN see the client's food log. Every message you receive includes a LOGGED SO FAR TODAY section listing everything eaten today with running totals — " +
+        "including meals the client logged themselves on the home screen, not just ones you logged. " +
+        "When the client asks what they've eaten, what's in their tracker, or what's left today, answer straight from that section with the item names and numbers. " +
+        "Never say you can't see the log or the dashboard — you can.",
       dynamic,
     };
   }
