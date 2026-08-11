@@ -45,7 +45,9 @@ function toast(msg, isErr) {
 /* ---------- constants ---------- */
 const KEY_CLAUDE = "sandbox_key_claude"; // shared origin with kimis-sandbox
 const KEY_DEEPGRAM = "sandbox_key_deepgram"; // voice: STT + TTS
-const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-arcas-en" }; // Maya / Dre
+const KEY_GROK = "sandbox_key_grok"; // xAI image generation (coach avatars)
+const COACH_VOICES = { nutrition: "aura-2-thalia-en", gym: "aura-2-stella-en" }; // Maya / Dre (female Aura-2 voices)
+const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
 
 const DEFAULT_PROFILE = {
   height: "6'2\"",
@@ -101,6 +103,8 @@ const state = {
   photos: [],  // {id, imageData, label, note, takenAt}
   chats: { nutrition: [], gym: [] }, // {id, role, content, at}
   sending: { nutrition: false, gym: false },
+  attach: { nutrition: null, gym: null }, // pending photo to send (data URL)
+  pickerCoach: null,
   compareMode: false,
   compareSel: [],
   viewerId: null,
@@ -145,8 +149,9 @@ async function loadChat(coach) {
   state.chats[coach] = await fsGet("chats/" + coach + "/messages", "at", "asc");
 }
 
-async function addChatMsg(coach, role, content) {
+async function addChatMsg(coach, role, content, img) {
   const msg = { role, content, at: new Date().toISOString() };
+  if (img) msg.img = img;
   const ref = await db.collection("chats").doc(coach).collection("messages").add(msg);
   state.chats[coach].push({ id: ref.id, ...msg });
 }
@@ -521,7 +526,9 @@ function buildCoachPanel(coachId) {
 
   const head = el("div", "chat-head");
   const idBox = el("div", "chat-id");
-  idBox.appendChild(el("div", "avatar", meta.short[0]));
+  const av = el("div", "avatar", meta.short[0]);
+  av.id = "avatarBox-" + coachId;
+  idBox.appendChild(av);
   const nameBox = el("div");
   nameBox.appendChild(el("div", "chat-name", meta.name));
   nameBox.appendChild(el("div", "chat-role", meta.title));
@@ -536,6 +543,11 @@ function buildCoachPanel(coachId) {
   scroll.id = "chatScroll-" + coachId;
   panel.appendChild(scroll);
 
+  const prev = el("div", "attach-prev");
+  prev.id = "attachPrev-" + coachId;
+  prev.hidden = true;
+  panel.appendChild(prev);
+
   const bar = el("form", "chat-input-bar");
   const ta = document.createElement("textarea");
   ta.rows = 1;
@@ -547,6 +559,11 @@ function buildCoachPanel(coachId) {
       bar.requestSubmit();
     }
   });
+  const cam = el("button", "mic-btn", "📷");
+  cam.type = "button";
+  cam.id = "chatCam-" + coachId;
+  cam.title = "Send a photo to " + meta.short;
+  cam.addEventListener("click", () => openAttachPicker(coachId));
   const mic = el("button", "mic-btn", "🎙");
   mic.type = "button";
   mic.id = "chatMic-" + coachId;
@@ -556,12 +573,13 @@ function buildCoachPanel(coachId) {
   send.type = "submit";
   send.id = "chatSend-" + coachId;
   bar.appendChild(ta);
+  bar.appendChild(cam);
   bar.appendChild(mic);
   bar.appendChild(send);
   bar.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = ta.value.trim();
-    if (text) sendCoachMessage(coachId, text);
+    if (text || state.attach[coachId]) sendCoachMessage(coachId, text);
   });
   panel.appendChild(bar);
   panel.appendChild(el("p", "chat-disclaimer", "AI coach, not a doctor. It knows your targets from Settings."));
@@ -598,6 +616,13 @@ function renderChat(coachId) {
 
   msgs.forEach((m) => {
     const div = el("div", "msg " + (m.role === "user" ? "user" : "bot"));
+    if (m.img) {
+      const im = document.createElement("img");
+      im.src = m.img;
+      im.alt = "shared photo";
+      im.className = "chat-img";
+      div.appendChild(im);
+    }
     div.appendChild(document.createTextNode(m.content));
     const foot = el("span", "time", fmtTime(m.at));
     div.appendChild(foot);
@@ -628,6 +653,7 @@ function coachSystemPrompt(coachId) {
     "\n- Background: " + p.context +
     "\n\nRULES:\n- Be direct, warm, and practical. Short paragraphs. No fluff." +
     "\n- Give specific numbers, portions, sets, and reps — never vague advice." +
+    "\n- The client can attach photos (meals, physique, equipment) — comment specifically on what you see." +
     "\n- You are not a doctor; for medical red flags, say so briefly and move on." +
     "\n- Remember the conversation history and build on it.";
   if (coachId === "nutrition") {
@@ -637,10 +663,10 @@ function coachSystemPrompt(coachId) {
       "\n- Favor simple, cheap, fast home cooking a sleep-deprived new dad can actually make." +
       "\n- STAY IN YOUR LANE: your domain is food — calories, protein, meals, groceries, eating out, cravings, hydration. " +
       "You work alongside Dre, the strength coach, who lives in the Coach tab. " +
-      "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Dre's department — ask him in the Coach tab.\" " +
+      "If the client asks about workouts, exercises, form, or training plans, give at most ONE short sentence, then redirect: \"That's Dre's department — ask her in the Coach tab.\" " +
       "Never write out workout routines, sets, or reps.";
   }
-  return "You are Dre, an expert strength coach specializing in home training and training around lower-back issues." + shared +
+  return "You are Dre, a sharp, encouraging female strength coach specializing in home training and training around lower-back issues." + shared +
     "\n- All programming must be home-friendly: dumbbells, backpack load, bodyweight, floor work." +
     "\n- Protect the lower back: coach brace/neutral spine, swap risky movements proactively." +
     "\n- Account for mono/EBV history: moderate intensity, no grind-to-failure every session." +
@@ -653,12 +679,21 @@ function coachSystemPrompt(coachId) {
 async function callClaude(coachId) {
   const key = localStorage.getItem(KEY_CLAUDE);
   if (!key) {
-    return "I'm ready to coach you, but I need a brain first — add your Anthropic API key in Settings (⚙️ tab → AI connection). " +
+    return "I'm ready to coach you, but I need a brain first — add your Anthropic API key in Settings (⚙️ gear icon, top right → AI connection). " +
       "If you've saved one on kimis-sandbox before, it should already work — same browser, same key slot. " +
       "Your targets are already loaded: " + state.profile.calories + " kcal / " + state.profile.protein +
       "g protein, " + state.profile.startWeight + " → " + state.profile.goalWeight + " lbs.";
   }
-  const history = state.chats[coachId].slice(-30).map((m) => ({ role: m.role, content: m.content }));
+  const history = state.chats[coachId].slice(-30).map((m) => {
+    if (!m.img) return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: [
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: String(m.img).split(",")[1] || "" } },
+        { type: "text", text: m.content || "(photo shared — no caption)" },
+      ],
+    };
+  });
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -706,7 +741,7 @@ async function toggleRecording(coachId) {
     return;
   }
   if (!deepgramKey()) {
-    toast("Add your Deepgram key first (⚙️ Settings → Voice)", true);
+    toast("Add your Deepgram key first (Settings ⚙️ → Voice)", true);
     return;
   }
   const mime = pickMime();
@@ -796,7 +831,7 @@ async function speakText(coachId, text, btn) {
   }
   stopSpeaking();
   if (!deepgramKey()) {
-    toast("Add your Deepgram key first (⚙️ Settings → Voice)", true);
+    toast("Add your Deepgram key first (Settings ⚙️ → Voice)", true);
     return;
   }
   if (btn) {
@@ -848,15 +883,533 @@ async function speakText(coachId, text, btn) {
   }
 }
 
+/* ---------- coach avatars (Firestore settings/avatars + Grok regen) ---------- */
+function avatarCacheKey(coachId) { return "gutcheck_avatar_" + coachId; }
+
+async function loadAvatars() {
+  ["nutrition", "gym"].forEach((c) => {
+    const cached = localStorage.getItem(avatarCacheKey(c));
+    if (cached) AVATARS[c] = cached;
+  });
+  applyAvatars();
+  try {
+    const doc = await db.collection("settings").doc("avatars").get();
+    if (doc.exists) {
+      const d = doc.data();
+      if (d.maya) { AVATARS.nutrition = d.maya; localStorage.setItem(avatarCacheKey("nutrition"), d.maya); }
+      if (d.dre) { AVATARS.gym = d.dre; localStorage.setItem(avatarCacheKey("gym"), d.dre); }
+      applyAvatars();
+    }
+  } catch (e) { console.warn("avatar load failed:", e); }
+  renderAvatarPreview();
+}
+
+function applyAvatars() {
+  ["nutrition", "gym"].forEach((c) => {
+    const box = $("#avatarBox-" + c);
+    if (!box) return;
+    while (box.firstChild) box.removeChild(box.firstChild);
+    if (AVATARS[c]) {
+      const img = document.createElement("img");
+      img.src = AVATARS[c];
+      img.alt = COACHES[c].short;
+      box.appendChild(img);
+      box.classList.add("has-img");
+    } else {
+      box.classList.remove("has-img");
+      box.textContent = COACHES[c].short[0];
+    }
+  });
+}
+
+function renderAvatarPreview() {
+  const wrap = $("#avatarPreview");
+  if (!wrap) return;
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+  [["nutrition", "Maya"], ["gym", "Dre"]].forEach((pair) => {
+    const c = pair[0], label = pair[1];
+    const box = el("div", "ap");
+    if (AVATARS[c]) {
+      const img = document.createElement("img");
+      img.src = AVATARS[c];
+      img.alt = label;
+      box.appendChild(img);
+    } else {
+      const ph = el("div", "avatar", label[0]);
+      ph.style.margin = "0 auto 4px";
+      box.appendChild(ph);
+    }
+    box.appendChild(el("div", null, label));
+    wrap.appendChild(box);
+  });
+}
+
+function downscaleDataUrl(dataUrl, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL("image/jpeg", quality || 0.82));
+    };
+    img.onerror = () => reject(new Error("Could not process image"));
+    img.src = dataUrl;
+  });
+}
+
+const GROK_PROMPTS = {
+  maya: "Professional headshot portrait of an attractive woman in her late 20s, a friendly registered dietitian and nutritionist, warm genuine smile, sage-green casual blouse, soft studio lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
+  dre: "Professional headshot portrait of an attractive athletic woman in her late 20s, a confident personal trainer, high sporty ponytail, black fitted athletic tank top, determined friendly smirk, soft gym lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
+};
+
+async function regenerateAvatars() {
+  const key = localStorage.getItem(KEY_GROK);
+  if (!key) { toast("Add your xAI key first, then generate", true); return; }
+  const btn = $("#regenAvatars");
+  btn.disabled = true;
+  try {
+    const jobs = [["maya", "nutrition"], ["dre", "gym"]];
+    for (let i = 0; i < jobs.length; i++) {
+      const who = jobs[i][0], coachId = jobs[i][1];
+      btn.textContent = "⏳ Generating " + (who === "maya" ? "Maya" : "Dre") + "… (~30s)";
+      const res = await fetch("https://api.x.ai/v1/images/generations", {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: "Bearer " + key },
+        body: JSON.stringify({ model: "grok-2-image", prompt: GROK_PROMPTS[who], n: 1, response_format: "b64_json" }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error("xAI " + res.status + ": " + t.slice(0, 160));
+      }
+      const data = await res.json();
+      const b64 = data.data && data.data[0] && data.data[0].b64_json;
+      if (!b64) throw new Error("xAI returned no image data");
+      const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
+      const patch = {};
+      patch[who] = small;
+      await db.collection("settings").doc("avatars").set(patch, { merge: true });
+      AVATARS[coachId] = small;
+      localStorage.setItem(avatarCacheKey(coachId), small);
+      applyAvatars();
+      renderAvatarPreview();
+    }
+    toast("New avatars saved — synced to all your devices");
+  } catch (e) {
+    toast("Avatar generation failed: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✨ Generate new coach avatars";
+  }
+}
+
+/* ---------- chat photo sharing ---------- */
+function openAttachPicker(coachId) {
+  state.pickerCoach = coachId;
+  let picker = $("#attachPicker");
+  if (!picker) {
+    picker = el("div", "picker");
+    picker.id = "attachPicker";
+    picker.addEventListener("click", (e) => { if (e.target === picker) closeAttachPicker(); });
+    document.body.appendChild(picker);
+  }
+  while (picker.firstChild) picker.removeChild(picker.firstChild);
+  const sheet = el("div", "picker-sheet");
+  const head = el("div", "picker-head");
+  head.appendChild(el("b", null, "Send a photo to " + COACHES[coachId].short));
+  const close = el("button", "icon-btn", "✕");
+  close.addEventListener("click", closeAttachPicker);
+  head.appendChild(close);
+  sheet.appendChild(head);
+
+  const upBtn = el("button", "btn big", "📷 Take / upload a new photo");
+  upBtn.addEventListener("click", () => $("#attachFile").click());
+  sheet.appendChild(upBtn);
+
+  if (state.photos.length) {
+    sheet.appendChild(el("div", "day-label", "Or pick from your progress photos"));
+    const grid = el("div", "picker-grid");
+    state.photos.slice(0, 12).forEach((p) => {
+      const cell = el("button", "pcell");
+      const img = document.createElement("img");
+      img.src = p.imageData;
+      img.alt = p.label;
+      img.loading = "lazy";
+      cell.appendChild(img);
+      cell.addEventListener("click", () => attachPhoto(coachId, p.imageData));
+      grid.appendChild(cell);
+    });
+    sheet.appendChild(grid);
+  }
+  picker.appendChild(sheet);
+  picker.hidden = false;
+}
+
+function closeAttachPicker() {
+  const picker = $("#attachPicker");
+  if (picker) picker.hidden = true;
+  state.pickerCoach = null;
+}
+
+async function attachPhoto(coachId, dataUrl) {
+  try {
+    state.attach[coachId] = await downscaleDataUrl(dataUrl, 768, 0.8);
+  } catch (e) {
+    state.attach[coachId] = dataUrl;
+  }
+  closeAttachPicker();
+  renderAttachPrev(coachId);
+  const ta = $("#chatInput-" + coachId);
+  if (ta) ta.focus();
+}
+
+function renderAttachPrev(coachId) {
+  const prev = $("#attachPrev-" + coachId);
+  if (!prev) return;
+  while (prev.firstChild) prev.removeChild(prev.firstChild);
+  const dataUrl = state.attach[coachId];
+  prev.hidden = !dataUrl;
+  if (!dataUrl) return;
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.alt = "attached photo";
+  prev.appendChild(img);
+  prev.appendChild(el("span", null, "Photo attached — add a caption or just hit send"));
+  const rm = el("button", "rm", "✕");
+  rm.title = "Remove photo";
+  rm.addEventListener("click", () => { state.attach[coachId] = null; renderAttachPrev(coachId); });
+  prev.appendChild(rm);
+}
+
+/* ---------- keyboard-aware layout (visualViewport) ---------- */
+function wireViewport() {
+  if (!window.visualViewport) return;
+  const sync = () => {
+    const vv = window.visualViewport;
+    const kbd = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty("--kbd", kbd + "px");
+    const open = kbd > 80;
+    const was = document.body.classList.contains("kbd-open");
+    document.body.classList.toggle("kbd-open", open);
+    if (open && !was && (state.tab === "nutrition" || state.tab === "gym")) {
+      scrollChatBottom(state.tab, false);
+    }
+  };
+  window.visualViewport.addEventListener("resize", sync);
+  window.visualViewport.addEventListener("scroll", sync);
+}
+
+/* ---------- workout timer (active session: clock + sets + rest timer) ---------- */
+const WK_KEY = "gutcheck_workout";
+const wk = {
+  active: false,   // session in progress (even while paused)
+  running: false,  // clock currently ticking
+  startEpoch: 0,
+  accumMs: 0,
+  sets: 0,
+  restDur: 90,     // last-used rest length (seconds)
+  restEnd: 0,
+  restActive: false,
+  expanded: false,
+  endArmed: false,
+  begunAt: null,
+  tick: null,
+};
+
+function wkElapsed() {
+  return wk.accumMs + (wk.running ? Date.now() - wk.startEpoch : 0);
+}
+function fmtClock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+function wkSave() {
+  try {
+    localStorage.setItem(WK_KEY, JSON.stringify({
+      active: wk.active, running: wk.running, startEpoch: wk.startEpoch,
+      accumMs: wk.accumMs, sets: wk.sets, restDur: wk.restDur,
+      restEnd: wk.restEnd, restActive: wk.restActive, begunAt: wk.begunAt,
+    }));
+  } catch (e) { /* storage full/blocked — timer still works in-memory */ }
+}
+function wkRestore() {
+  try {
+    const raw = localStorage.getItem(WK_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (!s.active) return;
+    Object.assign(wk, s);
+    if (wk.restActive && Date.now() >= wk.restEnd) wk.restActive = false; // rest expired while away
+  } catch (e) { /* ignore corrupt state */ }
+}
+
+let _wkAudio = null;
+function beep() {
+  try {
+    _wkAudio = _wkAudio || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _wkAudio;
+    [0, 220].forEach((delay, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = i === 0 ? 880 : 1175;
+      const t0 = ctx.currentTime + delay / 1000;
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+      o.start(t0); o.stop(t0 + 0.24);
+    });
+  } catch (e) { /* audio unavailable — vibration + flash still fire */ }
+}
+
+function buildWorkoutWidget() {
+  const strip = el("div", "wk-strip idle");
+  strip.id = "wkStrip";
+  document.body.appendChild(strip);
+  const panel = el("div", "wk-panel");
+  panel.id = "wkPanel";
+  panel.hidden = true;
+  document.body.appendChild(panel);
+  renderWk();
+  wk.tick = setInterval(wkTick, 300);
+}
+
+function renderWk() {
+  const strip = $("#wkStrip");
+  const panel = $("#wkPanel");
+  if (!strip || !panel) return;
+  document.body.classList.toggle("wk-on", wk.active);
+  while (strip.firstChild) strip.removeChild(strip.firstChild);
+
+  if (!wk.active) {
+    strip.className = "wk-strip idle";
+    strip.textContent = "⏱ Start workout";
+    strip.onclick = startWorkout;
+    panel.hidden = true;
+    wk.expanded = false;
+    return;
+  }
+  strip.onclick = null;
+  strip.className = "wk-strip";
+
+  const time = el("span", "wk-time", fmtClock(wkElapsed()));
+  time.id = "wkTime";
+  strip.appendChild(time);
+  const sets = el("span", "wk-sets", wk.sets + (wk.sets === 1 ? " set" : " sets"));
+  sets.id = "wkSets";
+  strip.appendChild(sets);
+
+  const restB = el("button", "wk-btn push" + (wk.restActive ? " resting" : ""), wk.restActive ? fmtClock(wk.restEnd - Date.now()) : "Rest");
+  restB.id = "wkRestBtn";
+  restB.title = wk.restActive ? "Tap to skip rest" : "Start rest timer";
+  restB.addEventListener("click", (e) => { e.stopPropagation(); if (wk.restActive) skipRest(); else startRest(wk.restDur); });
+  strip.appendChild(restB);
+
+  const setB = el("button", "wk-btn accent", "+ Set");
+  setB.id = "wkSetBtn";
+  setB.title = "Set done — starts your rest";
+  setB.addEventListener("click", (e) => { e.stopPropagation(); setDone(); });
+  strip.appendChild(setB);
+
+  const exB = el("button", "wk-btn icon", wk.expanded ? "▼" : "▲");
+  exB.id = "wkExpand";
+  exB.title = wk.expanded ? "Collapse timer" : "Expand timer";
+  exB.addEventListener("click", (e) => { e.stopPropagation(); wk.expanded = !wk.expanded; renderWk(); });
+  strip.appendChild(exB);
+
+  const endB = el("button", "wk-btn icon", "✕");
+  endB.id = "wkEnd";
+  endB.title = "End workout";
+  endB.addEventListener("click", (e) => { e.stopPropagation(); armEnd(endB); });
+  strip.appendChild(endB);
+
+  while (panel.firstChild) panel.removeChild(panel.firstChild);
+  panel.hidden = !wk.expanded;
+  if (wk.expanded) {
+    const big = el("div", "wk-big", wk.restActive ? fmtClock(wk.restEnd - Date.now()) : fmtClock(wkElapsed()));
+    big.id = "wkBig";
+    panel.appendChild(big);
+    const lbl = el("div", "wk-label", wk.restActive ? "rest — next set when it hits zero" : "session time");
+    lbl.id = "wkBigLabel";
+    panel.appendChild(lbl);
+
+    const chips = el("div", "wk-chips");
+    [60, 90, 120, 180].forEach((s) => {
+      const c = el("button", "wk-chip" + (wk.restDur === s ? " on" : ""), s + "s");
+      c.addEventListener("click", () => startRest(s));
+      chips.appendChild(c);
+    });
+    const plus = el("button", "wk-chip", "+15s");
+    plus.id = "wkPlus";
+    plus.addEventListener("click", () => addRest(15));
+    chips.appendChild(plus);
+    const skip = el("button", "wk-chip", "Skip");
+    skip.id = "wkSkip";
+    skip.addEventListener("click", skipRest);
+    chips.appendChild(skip);
+    panel.appendChild(chips);
+
+    const row = el("div", "wk-row");
+    const pause = el("button", "btn ghost sm", wk.running ? "⏸ Pause" : "▶ Resume");
+    pause.id = "wkPause";
+    pause.addEventListener("click", pauseResume);
+    row.appendChild(pause);
+    const fin = el("button", "btn sm", "Finish workout");
+    fin.id = "wkFinish";
+    fin.addEventListener("click", () => armEnd(fin));
+    row.appendChild(fin);
+    panel.appendChild(row);
+  }
+}
+
+function wkTick() {
+  if (!wk.active) return;
+  const t = $("#wkTime");
+  if (t) t.textContent = fmtClock(wkElapsed());
+  const big = $("#wkBig");
+  const lbl = $("#wkBigLabel");
+  if (wk.restActive) {
+    const rem = wk.restEnd - Date.now();
+    if (rem <= 0) { wkRestDone(); return; }
+    const rb = $("#wkRestBtn");
+    if (rb) rb.textContent = fmtClock(rem);
+    if (big) big.textContent = fmtClock(rem);
+    if (lbl) lbl.textContent = "rest — next set when it hits zero";
+  } else {
+    const rb = $("#wkRestBtn");
+    if (rb && rb.textContent !== "GO 💪") rb.textContent = "Rest";
+    if (big) big.textContent = fmtClock(wkElapsed());
+    if (lbl) lbl.textContent = "session time";
+  }
+}
+
+function startWorkout() {
+  wk.active = true;
+  wk.running = true;
+  wk.startEpoch = Date.now();
+  wk.accumMs = 0;
+  wk.sets = 0;
+  wk.begunAt = new Date().toISOString();
+  wk.restActive = false;
+  wk.expanded = true;
+  wkSave();
+  renderWk();
+  toast("Workout started — clock's running. Tap + Set after each set.");
+}
+
+function pauseResume() {
+  if (wk.running) {
+    wk.accumMs += Date.now() - wk.startEpoch;
+    wk.running = false;
+  } else {
+    wk.startEpoch = Date.now();
+    wk.running = true;
+  }
+  wkSave();
+  renderWk();
+}
+
+function setDone() {
+  wk.sets += 1;
+  const setsEl = $("#wkSets");
+  if (setsEl) setsEl.textContent = wk.sets + (wk.sets === 1 ? " set" : " sets");
+  startRest(wk.restDur);
+}
+
+function startRest(sec) {
+  wk.restDur = sec;
+  wk.restEnd = Date.now() + sec * 1000;
+  wk.restActive = true;
+  wkSave();
+  renderWk();
+}
+
+function addRest(sec) {
+  if (!wk.restActive) return;
+  wk.restEnd += sec * 1000;
+  wkSave();
+}
+
+function skipRest() {
+  wk.restActive = false;
+  wkSave();
+  renderWk();
+}
+
+function wkRestDone() {
+  wk.restActive = false;
+  wkSave();
+  beep();
+  if (navigator.vibrate) navigator.vibrate([180, 80, 180]);
+  const panel = $("#wkPanel");
+  if (panel && !panel.hidden) {
+    panel.classList.remove("wk-flash");
+    void panel.offsetWidth; // restart animation
+    panel.classList.add("wk-flash");
+  }
+  const rb = $("#wkRestBtn");
+  if (rb) rb.textContent = "GO 💪";
+  const lbl = $("#wkBigLabel");
+  if (lbl) lbl.textContent = "rest over — go!";
+  setTimeout(() => { const b = $("#wkRestBtn"); if (b && !wk.restActive) b.textContent = "Rest"; }, 5000);
+}
+
+function armEnd(btn) {
+  if (!wk.endArmed) {
+    wk.endArmed = true;
+    const old = btn.textContent;
+    btn.textContent = "Sure?";
+    setTimeout(() => {
+      wk.endArmed = false;
+      if (btn.isConnected) btn.textContent = old;
+    }, 3000);
+    return;
+  }
+  finishWorkout();
+}
+
+async function finishWorkout() {
+  const durSec = Math.round(wkElapsed() / 1000);
+  const sets = wk.sets;
+  const entry = {
+    startedAt: wk.begunAt || new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    durationSec: durSec,
+    sets: sets,
+  };
+  try {
+    if (db) await db.collection("workouts").add(entry);
+    toast("Workout logged — " + Math.max(1, Math.round(durSec / 60)) + " min, " + sets + " sets 💪");
+  } catch (e) {
+    toast("Workout done but save failed: " + e.message, true);
+  }
+  wk.active = false;
+  wk.running = false;
+  wk.restActive = false;
+  wk.sets = 0;
+  wk.accumMs = 0;
+  wk.expanded = false;
+  wk.endArmed = false;
+  try { localStorage.removeItem(WK_KEY); } catch (e) { /* noop */ }
+  renderWk();
+}
+
 async function sendCoachMessage(coachId, text) {
   if (state.sending[coachId]) return;
+  const img = state.attach[coachId] || null;
   state.sending[coachId] = true;
   $("#chatInput-" + coachId).value = "";
+  state.attach[coachId] = null;
+  renderAttachPrev(coachId);
   try {
-    await addChatMsg(coachId, "user", text);
+    await addChatMsg(coachId, "user", text || "", img);
   } catch (e) {
     state.sending[coachId] = false;
     $("#chatInput-" + coachId).value = text; // don't eat the message — let them retry
+    state.attach[coachId] = img;
+    renderAttachPrev(coachId);
     toast("Message didn't send: " + e.message + " — is Firestore created in the Firebase console?", true);
     return;
   }
@@ -885,7 +1438,7 @@ async function sendCoachMessage(coachId, text) {
 
 async function clearChat(coachId) {
   try {
-    const snap = await db.collection("chats").doc(coachId).collection("messages").get();
+    const snap = await db.collection("chats").doc(coach).collection("messages").get();
     const batch = db.batch();
     snap.docs.forEach((d) => batch.delete(d.ref));
     await batch.commit();
@@ -902,6 +1455,8 @@ function renderSettings() {
   PROFILE_FIELDS.forEach((f) => { $("#s_" + f).value = state.profile[f] || ""; });
   $("#aiPill").hidden = !localStorage.getItem(KEY_CLAUDE);
   $("#dgPill").hidden = !localStorage.getItem(KEY_DEEPGRAM);
+  $("#grokPill").hidden = !localStorage.getItem(KEY_GROK);
+  renderAvatarPreview();
 }
 
 async function onSaveProfile() {
@@ -929,6 +1484,15 @@ function onSaveDgKey() {
   $("#s_dgKey").value = "";
   $("#dgPill").hidden = false;
   toast("Voice key saved — tap 🎙 in any coach chat");
+}
+
+function onSaveGrokKey() {
+  const v = $("#s_grokKey").value.trim();
+  if (!v) { toast("Paste a key first", true); return; }
+  localStorage.setItem(KEY_GROK, v);
+  $("#s_grokKey").value = "";
+  $("#grokPill").hidden = false;
+  toast("Image key saved — generate fresh avatars anytime");
 }
 
 /* ---------- boot ---------- */
@@ -959,13 +1523,38 @@ function wireEvents() {
   $("#saveProfile").addEventListener("click", onSaveProfile);
   $("#saveKey").addEventListener("click", onSaveKey);
   $("#saveDgKey").addEventListener("click", onSaveDgKey);
+  $("#saveGrokKey").addEventListener("click", onSaveGrokKey);
+  $("#regenAvatars").addEventListener("click", regenerateAvatars);
+  $("#settingsBtn").addEventListener("click", () => go("settings"));
   $("#fsToggle").addEventListener("click", toggleFullscreen);
   document.addEventListener("fullscreenchange", syncFsBtn);
+  wireViewport();
+
+  // hidden file input for chat photo attachments
+  const af = document.createElement("input");
+  af.type = "file";
+  af.accept = "image/*";
+  af.id = "attachFile";
+  af.hidden = true;
+  document.body.appendChild(af);
+  af.addEventListener("change", async (e) => {
+    const f = e.target.files && e.target.files[0];
+    const coachId = state.pickerCoach;
+    e.target.value = "";
+    if (f && coachId) {
+      try {
+        const data = await compressForFirestore(f);
+        attachPhoto(coachId, data);
+      } catch (err) { toast("Could not read photo: " + err.message, true); }
+    }
+  });
 }
 
 async function boot() {
   buildCoachPanel("nutrition");
   buildCoachPanel("gym");
+  wkRestore();
+  buildWorkoutWidget();
   wireEvents();
   if (!db) {
     toast("Firebase failed to initialize — check your connection", true);
@@ -978,6 +1567,7 @@ async function boot() {
       loadPhotos(),
       loadChat("nutrition"),
       loadChat("gym"),
+      loadAvatars(),
     ]);
   } catch (e) {
     toast("Could not load data: " + e.message + " — check Firestore is enabled and rules allow read/write", true);
