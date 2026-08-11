@@ -21,6 +21,7 @@
     <span class="brand-name">GutCheck</span>
   </button>
   <div class="topbar-right">
+    <button class="fs-btn subtle" id="settingsBtn" title="Settings" aria-label="Settings">⚙️</button>
     <button class="fs-btn" id="fsToggle" title="Full screen" aria-label="Toggle full screen">⛶</button>
     <div class="baby-chip" id="babyChip" hidden>
       <span aria-hidden="true">👶</span>
@@ -159,9 +160,18 @@
 
     <div class="card">
       <h2 class="card-title">🎙 Voice (Deepgram) <span class="pill" id="dgPill" hidden>connected</span></h2>
-      <p class="sub left">Gives the coaches ears and voices: tap 🎙 in a chat to talk, tap 🔊 on any reply to hear it. Maya speaks as <b>Thalia</b>, Dre as <b>Arcas</b> (Aura-2). Transcription uses Nova-3. The key lives only in this browser's localStorage (<code>sandbox_key_deepgram</code>).</p>
+      <p class="sub left">Gives the coaches ears and voices: tap 🎙 in a chat to talk, tap 🔊 on any reply to hear it. Maya speaks as <b>Thalia</b>, Dre as <b>Stella</b> (Aura-2). Transcription uses Nova-3. The key lives only in this browser's localStorage (<code>sandbox_key_deepgram</code>).</p>
       <label class="full">Deepgram API key<input id="s_dgKey" type="password" placeholder="Deepgram key…" autocomplete="off"></label>
       <button class="btn big" id="saveDgKey">Save voice key</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">🎨 Coach avatars (Grok) <span class="pill" id="grokPill" hidden>connected</span></h2>
+      <div class="avatar-preview" id="avatarPreview"></div>
+      <p class="sub left">Regenerate the coaches' profile pictures with xAI's Grok image model. New avatars save to Firebase, so they sync to every device. The key lives only in this browser's localStorage (<code>sandbox_key_grok</code>).</p>
+      <label class="full">xAI API key<input id="s_grokKey" type="password" placeholder="xai-…" autocomplete="off"></label>
+      <button class="btn big" id="saveGrokKey">Save image key</button>
+      <button class="btn ghost big" id="regenAvatars" style="margin-top:8px">✨ Generate new coach avatars</button>
     </div>
 
     <p class="footer-note">GutCheck · photos, weights, and chats live in your own Firebase project</p>
@@ -174,7 +184,6 @@
   <button data-go="photos" class="tab-btn"><span class="tab-ico">📸</span>Photos</button>
   <button data-go="nutrition" class="tab-btn"><span class="tab-ico">🥗</span>Nutritionist</button>
   <button data-go="gym" class="tab-btn"><span class="tab-ico">🏋️</span>Coach</button>
-  <button data-go="settings" class="tab-btn"><span class="tab-ico">⚙️</span>Settings</button>
 </nav>
 
 <div class="toast" id="toast" hidden></div>
