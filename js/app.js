@@ -528,15 +528,25 @@ function buildCoachPanel(coachId) {
   const idBox = el("div", "chat-id");
   const av = el("div", "avatar", meta.short[0]);
   av.id = "avatarBox-" + coachId;
+  av.classList.add("tap-zoom");
+  av.title = "Tap to see " + meta.short + " full size";
+  av.addEventListener("click", () => showAvatarFull(coachId));
   idBox.appendChild(av);
   const nameBox = el("div");
   nameBox.appendChild(el("div", "chat-name", meta.name));
   nameBox.appendChild(el("div", "chat-role", meta.title));
   idBox.appendChild(nameBox);
   head.appendChild(idBox);
+  const actions = el("div", "chat-head-actions");
+  const timerB = el("button", "link-btn timer-btn", "⏱");
+  timerB.id = "timerBtn-" + coachId;
+  timerB.title = coachId === "gym" ? "Workout timer" : "Kitchen timer";
+  timerB.addEventListener("click", () => openTimerSheet(coachId));
+  actions.appendChild(timerB);
   const reset = el("button", "link-btn", "↺ Reset");
   reset.addEventListener("click", () => clearChat(coachId));
-  head.appendChild(reset);
+  actions.appendChild(reset);
+  head.appendChild(actions);
   panel.appendChild(head);
 
   const scroll = el("div", "chat-scroll");
@@ -596,6 +606,30 @@ function scrollChatBottom(coachId, smooth) {
   });
 }
 
+function msgAvatar(coachId) {
+  const meta = COACHES[coachId];
+  const a = el("button", "msg-avatar");
+  a.type = "button";
+  a.title = meta.short + " — tap to enlarge";
+  if (AVATARS[coachId]) {
+    const i = document.createElement("img");
+    i.src = AVATARS[coachId];
+    i.alt = meta.short;
+    a.appendChild(i);
+  } else {
+    a.textContent = meta.short[0];
+  }
+  a.addEventListener("click", () => showAvatarFull(coachId));
+  return a;
+}
+
+function botRow(coachId, bubble) {
+  const row = el("div", "msg-row");
+  row.appendChild(msgAvatar(coachId));
+  row.appendChild(bubble);
+  return row;
+}
+
 function renderChat(coachId) {
   const meta = COACHES[coachId];
   const wrap = $("#chatScroll-" + coachId);
@@ -603,7 +637,7 @@ function renderChat(coachId) {
   const msgs = state.chats[coachId];
 
   if (!msgs.length) {
-    wrap.appendChild(el("div", "msg bot", meta.greeting));
+    wrap.appendChild(botRow(coachId, el("div", "msg bot", meta.greeting)));
     const sug = el("div", "suggestions");
     meta.suggestions.forEach((s) => {
       const chip = el("button", "chip", s);
@@ -631,8 +665,10 @@ function renderChat(coachId) {
       spk.title = "Play as " + meta.short;
       spk.addEventListener("click", () => speakText(coachId, m.content, spk));
       div.appendChild(spk);
+      wrap.appendChild(botRow(coachId, div));
+    } else {
+      wrap.appendChild(div);
     }
-    wrap.appendChild(div);
   });
 
   if (state.sending[coachId]) {
@@ -640,8 +676,38 @@ function renderChat(coachId) {
     const s = el("span", "spin", "◌");
     t.appendChild(s);
     t.appendChild(document.createTextNode(meta.short + " is thinking…"));
-    wrap.appendChild(t);
+    wrap.appendChild(botRow(coachId, t));
   }
+}
+
+/* ---------- full-size coach photo viewer ---------- */
+function showAvatarFull(coachId) {
+  const meta = COACHES[coachId];
+  const src = AVATARS[coachId];
+  if (!src) { toast("No photo yet — generate coach avatars in Settings"); return; }
+  let v = $("#avatarViewer");
+  if (!v) {
+    v = el("div", "avatar-viewer");
+    v.id = "avatarViewer";
+    v.hidden = true;
+    const frame = el("div", "av-frame");
+    const img = document.createElement("img");
+    img.id = "avatarViewerImg";
+    img.alt = "coach photo";
+    frame.appendChild(img);
+    const cap = el("div", "av-cap");
+    cap.id = "avatarViewerCap";
+    frame.appendChild(cap);
+    const closeB = el("button", "icon-btn av-close", "✕");
+    closeB.title = "Close";
+    frame.appendChild(closeB);
+    v.appendChild(frame);
+    v.addEventListener("click", () => { v.hidden = true; });
+    document.body.appendChild(v);
+  }
+  $("#avatarViewerImg").src = src;
+  $("#avatarViewerCap").textContent = meta.name + " — " + meta.title;
+  v.hidden = false;
 }
 
 function coachSystemPrompt(coachId) {
@@ -1164,124 +1230,139 @@ function beep() {
   } catch (e) { /* audio unavailable — vibration + flash still fire */ }
 }
 
-function buildWorkoutWidget() {
-  const strip = el("div", "wk-strip idle");
-  strip.id = "wkStrip";
-  document.body.appendChild(strip);
-  const panel = el("div", "wk-panel");
-  panel.id = "wkPanel";
-  panel.hidden = true;
-  document.body.appendChild(panel);
+function buildTimerUI() {
+  const wkOv = el("div", "picker");
+  wkOv.id = "wkSheet";
+  wkOv.hidden = true;
+  const wkSh = el("div", "picker-sheet timer-sheet");
+  wkSh.id = "wkSheetBody";
+  wkOv.appendChild(wkSh);
+  wkOv.addEventListener("click", (e) => { if (e.target === wkOv) wkOv.hidden = true; });
+  document.body.appendChild(wkOv);
+
+  const ckOv = el("div", "picker");
+  ckOv.id = "ckSheet";
+  ckOv.hidden = true;
+  const ckSh = el("div", "picker-sheet timer-sheet");
+  ckSh.id = "ckSheetBody";
+  ckOv.appendChild(ckSh);
+  ckOv.addEventListener("click", (e) => { if (e.target === ckOv) ckOv.hidden = true; });
+  document.body.appendChild(ckOv);
+
   renderWk();
+  renderCk();
   wk.tick = setInterval(wkTick, 300);
 }
 
-function renderWk() {
-  const strip = $("#wkStrip");
-  const panel = $("#wkPanel");
-  if (!strip || !panel) return;
-  document.body.classList.toggle("wk-on", wk.active);
-  while (strip.firstChild) strip.removeChild(strip.firstChild);
-
-  if (!wk.active) {
-    strip.className = "wk-strip idle";
-    strip.textContent = "⏱ Start workout";
-    strip.onclick = startWorkout;
-    panel.hidden = true;
-    wk.expanded = false;
-    return;
-  }
-  strip.onclick = null;
-  strip.className = "wk-strip";
-
-  const time = el("span", "wk-time", fmtClock(wkElapsed()));
-  time.id = "wkTime";
-  strip.appendChild(time);
-  const sets = el("span", "wk-sets", wk.sets + (wk.sets === 1 ? " set" : " sets"));
-  sets.id = "wkSets";
-  strip.appendChild(sets);
-
-  const restB = el("button", "wk-btn push" + (wk.restActive ? " resting" : ""), wk.restActive ? fmtClock(wk.restEnd - Date.now()) : "Rest");
-  restB.id = "wkRestBtn";
-  restB.title = wk.restActive ? "Tap to skip rest" : "Start rest timer";
-  restB.addEventListener("click", (e) => { e.stopPropagation(); if (wk.restActive) skipRest(); else startRest(wk.restDur); });
-  strip.appendChild(restB);
-
-  const setB = el("button", "wk-btn accent", "+ Set");
-  setB.id = "wkSetBtn";
-  setB.title = "Set done — starts your rest";
-  setB.addEventListener("click", (e) => { e.stopPropagation(); setDone(); });
-  strip.appendChild(setB);
-
-  const exB = el("button", "wk-btn icon", wk.expanded ? "▼" : "▲");
-  exB.id = "wkExpand";
-  exB.title = wk.expanded ? "Collapse timer" : "Expand timer";
-  exB.addEventListener("click", (e) => { e.stopPropagation(); wk.expanded = !wk.expanded; renderWk(); });
-  strip.appendChild(exB);
-
-  const endB = el("button", "wk-btn icon", "✕");
-  endB.id = "wkEnd";
-  endB.title = "End workout";
-  endB.addEventListener("click", (e) => { e.stopPropagation(); armEnd(endB); });
-  strip.appendChild(endB);
-
-  while (panel.firstChild) panel.removeChild(panel.firstChild);
-  panel.hidden = !wk.expanded;
-  if (wk.expanded) {
-    const big = el("div", "wk-big", wk.restActive ? fmtClock(wk.restEnd - Date.now()) : fmtClock(wkElapsed()));
-    big.id = "wkBig";
-    panel.appendChild(big);
-    const lbl = el("div", "wk-label", wk.restActive ? "rest — next set when it hits zero" : "session time");
-    lbl.id = "wkBigLabel";
-    panel.appendChild(lbl);
-
-    const chips = el("div", "wk-chips");
-    [60, 90, 120, 180].forEach((s) => {
-      const c = el("button", "wk-chip" + (wk.restDur === s ? " on" : ""), s + "s");
-      c.addEventListener("click", () => startRest(s));
-      chips.appendChild(c);
-    });
-    const plus = el("button", "wk-chip", "+15s");
-    plus.id = "wkPlus";
-    plus.addEventListener("click", () => addRest(15));
-    chips.appendChild(plus);
-    const skip = el("button", "wk-chip", "Skip");
-    skip.id = "wkSkip";
-    skip.addEventListener("click", skipRest);
-    chips.appendChild(skip);
-    panel.appendChild(chips);
-
-    const row = el("div", "wk-row");
-    const pause = el("button", "btn ghost sm", wk.running ? "⏸ Pause" : "▶ Resume");
-    pause.id = "wkPause";
-    pause.addEventListener("click", pauseResume);
-    row.appendChild(pause);
-    const fin = el("button", "btn sm", "Finish workout");
-    fin.id = "wkFinish";
-    fin.addEventListener("click", () => armEnd(fin));
-    row.appendChild(fin);
-    panel.appendChild(row);
+function openTimerSheet(coachId) {
+  if (coachId === "gym") {
+    renderWk();
+    $("#wkSheet").hidden = false;
+  } else {
+    renderCk();
+    $("#ckSheet").hidden = false;
   }
 }
 
+function sheetHead(body, title) {
+  const head = el("div", "picker-head");
+  head.appendChild(el("b", null, title));
+  const x = el("button", "icon-btn", "✕");
+  x.title = "Close";
+  x.addEventListener("click", () => { body.parentElement.hidden = true; });
+  head.appendChild(x);
+  body.appendChild(head);
+}
+
+function renderWk() {
+  const chip = $("#timerBtn-gym");
+  if (chip) {
+    chip.classList.toggle("live", wk.active);
+    chip.classList.toggle("resting", wk.active && wk.restActive);
+    chip.textContent = wk.active ? "⏱ " + fmtClock(wkElapsed()) : "⏱";
+  }
+  const body = $("#wkSheetBody");
+  if (!body) return;
+  while (body.firstChild) body.removeChild(body.firstChild);
+  sheetHead(body, "🏋️ Workout timer");
+
+  if (!wk.active) {
+    body.appendChild(el("p", "timer-hint", "Clock your session, count sets, time your rests — it logs to your history when you finish."));
+    const go = el("button", "btn big", "▶ Start workout");
+    go.id = "wkStart";
+    go.addEventListener("click", startWorkout);
+    body.appendChild(go);
+    return;
+  }
+
+  const big = el("div", "wk-big", wk.restActive ? fmtClock(wk.restEnd - Date.now()) : fmtClock(wkElapsed()));
+  big.id = "wkBig";
+  body.appendChild(big);
+  const lbl = el("div", "wk-label", wk.restActive ? "rest — next set when it hits zero" : "session time");
+  lbl.id = "wkBigLabel";
+  body.appendChild(lbl);
+  const stat = el("div", "timer-stat", wk.sets + (wk.sets === 1 ? " set done" : " sets done"));
+  stat.id = "wkSets";
+  body.appendChild(stat);
+
+  const row = el("div", "wk-row");
+  const setB = el("button", "btn", "＋ Set done");
+  setB.id = "wkSetBtn";
+  setB.title = "Logs a set and starts your rest";
+  setB.addEventListener("click", setDone);
+  row.appendChild(setB);
+  const pause = el("button", "btn ghost", wk.running ? "⏸ Pause" : "▶ Resume");
+  pause.id = "wkPause";
+  pause.addEventListener("click", pauseResume);
+  row.appendChild(pause);
+  body.appendChild(row);
+
+  body.appendChild(el("div", "wk-label", "rest timer"));
+  const chips = el("div", "wk-chips");
+  [60, 90, 120, 180].forEach((s) => {
+    const c = el("button", "wk-chip" + (wk.restDur === s ? " on" : ""), s + "s");
+    c.addEventListener("click", () => startRest(s));
+    chips.appendChild(c);
+  });
+  const plus = el("button", "wk-chip", "+15s");
+  plus.id = "wkPlus";
+  plus.addEventListener("click", () => addRest(15));
+  chips.appendChild(plus);
+  const skip = el("button", "wk-chip", "Skip");
+  skip.id = "wkSkip";
+  skip.addEventListener("click", skipRest);
+  chips.appendChild(skip);
+  body.appendChild(chips);
+
+  const fin = el("button", "btn ghost big", "Finish & log workout");
+  fin.id = "wkFinish";
+  fin.addEventListener("click", () => armEnd(fin));
+  body.appendChild(fin);
+}
+
 function wkTick() {
-  if (!wk.active) return;
-  const t = $("#wkTime");
-  if (t) t.textContent = fmtClock(wkElapsed());
-  const big = $("#wkBig");
-  const lbl = $("#wkBigLabel");
-  if (wk.restActive) {
-    const rem = wk.restEnd - Date.now();
-    if (rem <= 0) { wkRestDone(); return; }
-    const rb = $("#wkRestBtn");
-    if (rb) rb.textContent = fmtClock(rem);
+  if (wk.active) {
+    const chip = $("#timerBtn-gym");
+    if (chip) chip.textContent = "⏱ " + fmtClock(wkElapsed());
+    const big = $("#wkBig");
+    const lbl = $("#wkBigLabel");
+    if (wk.restActive) {
+      const rem = wk.restEnd - Date.now();
+      if (rem <= 0) { wkRestDone(); }
+      else {
+        if (big) big.textContent = fmtClock(rem);
+        if (lbl) lbl.textContent = "rest — next set when it hits zero";
+      }
+    } else {
+      if (big) big.textContent = fmtClock(wkElapsed());
+      if (lbl && lbl.textContent.startsWith("rest —")) lbl.textContent = "session time";
+    }
+  }
+  if (ck.running) {
+    const rem = ck.endAt - Date.now();
+    if (rem <= 0) { ckDone(); return; }
+    const big = $("#ckBig");
     if (big) big.textContent = fmtClock(rem);
-    if (lbl) lbl.textContent = "rest — next set when it hits zero";
-  } else {
-    const rb = $("#wkRestBtn");
-    if (rb && rb.textContent !== "GO 💪") rb.textContent = "Rest";
-    if (big) big.textContent = fmtClock(wkElapsed());
-    if (lbl) lbl.textContent = "session time";
   }
 }
 
@@ -1293,10 +1374,9 @@ function startWorkout() {
   wk.sets = 0;
   wk.begunAt = new Date().toISOString();
   wk.restActive = false;
-  wk.expanded = true;
   wkSave();
   renderWk();
-  toast("Workout started — clock's running. Tap + Set after each set.");
+  toast("Workout started — clock's running. Tap ＋ Set done after each set.");
 }
 
 function pauseResume() {
@@ -1343,17 +1423,16 @@ function wkRestDone() {
   wkSave();
   beep();
   if (navigator.vibrate) navigator.vibrate([180, 80, 180]);
-  const panel = $("#wkPanel");
-  if (panel && !panel.hidden) {
-    panel.classList.remove("wk-flash");
-    void panel.offsetWidth; // restart animation
-    panel.classList.add("wk-flash");
+  const sheet = $("#wkSheet");
+  const body = $("#wkSheetBody");
+  if (body && sheet && !sheet.hidden) {
+    body.classList.remove("wk-flash");
+    void body.offsetWidth; // restart animation
+    body.classList.add("wk-flash");
   }
-  const rb = $("#wkRestBtn");
-  if (rb) rb.textContent = "GO 💪";
+  renderWk();
   const lbl = $("#wkBigLabel");
-  if (lbl) lbl.textContent = "rest over — go!";
-  setTimeout(() => { const b = $("#wkRestBtn"); if (b && !wk.restActive) b.textContent = "Rest"; }, 5000);
+  if (lbl) lbl.textContent = "rest over — GO 💪";
 }
 
 function armEnd(btn) {
@@ -1390,10 +1469,132 @@ async function finishWorkout() {
   wk.restActive = false;
   wk.sets = 0;
   wk.accumMs = 0;
-  wk.expanded = false;
   wk.endArmed = false;
   try { localStorage.removeItem(WK_KEY); } catch (e) { /* noop */ }
   renderWk();
+  const sheet = $("#wkSheet");
+  if (sheet) sheet.hidden = true;
+}
+
+/* ---------- cooking / kitchen timer (Maya's page) ---------- */
+const CK_KEY = "gutcheck_cook";
+const ck = { durSec: 600, running: false, endAt: 0, leftMs: 600000, flash: false };
+
+function ckLeft() {
+  return ck.running ? Math.max(0, ck.endAt - Date.now()) : ck.leftMs;
+}
+function ckSave() {
+  try {
+    localStorage.setItem(CK_KEY, JSON.stringify({
+      durSec: ck.durSec, running: ck.running, endAt: ck.endAt, leftMs: ckLeft(),
+    }));
+  } catch (e) { /* storage blocked — timer still works in-memory */ }
+}
+function ckRestore() {
+  try {
+    const raw = localStorage.getItem(CK_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    ck.durSec = s.durSec || 600;
+    ck.leftMs = s.leftMs != null ? s.leftMs : ck.durSec * 1000;
+    ck.endAt = s.endAt || 0;
+    if (s.running) {
+      if (Date.now() >= ck.endAt) { ck.running = false; ck.leftMs = 0; ck.flash = true; }
+      else ck.running = true;
+    }
+  } catch (e) { /* ignore corrupt state */ }
+}
+
+function ckSet(sec) {
+  ck.durSec = sec;
+  ck.running = false;
+  ck.leftMs = sec * 1000;
+  ck.flash = false;
+  ckSave();
+  renderCk();
+}
+
+function ckAdd(sec) {
+  if (ck.running) {
+    ck.endAt += sec * 1000;
+    if (ckLeft() <= 0) ck.endAt = Date.now() + 5000;
+  } else {
+    ck.leftMs = Math.max(60000, ckLeft() + sec * 1000);
+    ck.durSec = Math.round(ck.leftMs / 1000);
+  }
+  ck.flash = false;
+  ckSave();
+  renderCk();
+}
+
+function ckStartPause() {
+  if (ck.running) {
+    ck.leftMs = ckLeft();
+    ck.running = false;
+  } else {
+    if (ckLeft() <= 0) ck.leftMs = ck.durSec * 1000;
+    ck.endAt = Date.now() + ckLeft();
+    ck.running = true;
+    ck.flash = false;
+  }
+  ckSave();
+  renderCk();
+}
+
+function ckDone() {
+  ck.running = false;
+  ck.leftMs = 0;
+  ck.flash = true;
+  ckSave();
+  beep();
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+  renderCk();
+  const body = $("#ckSheetBody");
+  if (body) {
+    body.classList.remove("wk-flash");
+    void body.offsetWidth;
+    body.classList.add("wk-flash");
+  }
+}
+
+function renderCk() {
+  const body = $("#ckSheetBody");
+  if (!body) return;
+  while (body.firstChild) body.removeChild(body.firstChild);
+  sheetHead(body, "🍳 Kitchen timer");
+
+  const big = el("div", "wk-big", fmtClock(ckLeft()));
+  big.id = "ckBig";
+  body.appendChild(big);
+  const lbl = el("div", "wk-label", ck.flash ? "time's up — check the pan! 🍳" : ck.running ? "counting down" : "set your cook time");
+  lbl.id = "ckLabel";
+  body.appendChild(lbl);
+
+  const chips = el("div", "wk-chips");
+  [60, 300, 600, 900, 1200, 1800].forEach((s) => {
+    const c = el("button", "wk-chip" + (ck.durSec === s && !ck.running ? " on" : ""), (s / 60) + "m");
+    c.addEventListener("click", () => ckSet(s));
+    chips.appendChild(c);
+  });
+  body.appendChild(chips);
+
+  const row = el("div", "wk-row");
+  const minus = el("button", "btn ghost", "−1 min");
+  minus.addEventListener("click", () => ckAdd(-60));
+  row.appendChild(minus);
+  const goB = el("button", "btn", ck.running ? "⏸ Pause" : "▶ Start");
+  goB.id = "ckGo";
+  goB.addEventListener("click", ckStartPause);
+  row.appendChild(goB);
+  const plus = el("button", "btn ghost", "+1 min");
+  plus.addEventListener("click", () => ckAdd(60));
+  row.appendChild(plus);
+  body.appendChild(row);
+
+  const clr = el("button", "link-btn center-btn", "Reset to " + Math.round(ck.durSec / 60) + "m");
+  clr.id = "ckReset";
+  clr.addEventListener("click", () => ckSet(ck.durSec));
+  body.appendChild(clr);
 }
 
 async function sendCoachMessage(coachId, text) {
@@ -1495,6 +1696,67 @@ function onSaveGrokKey() {
   toast("Image key saved — generate fresh avatars anytime");
 }
 
+/* ---------- PWA: splash, logo, install, service worker ---------- */
+let deferredInstall = null;
+
+function applyBranding() {
+  if (typeof LOGO_URL !== "string" || !LOGO_URL) return;
+  const sp = $("#splashLogo");
+  if (sp) sp.src = LOGO_URL;
+  const bm = $(".brand-mark");
+  if (bm) {
+    while (bm.firstChild) bm.removeChild(bm.firstChild);
+    const i = document.createElement("img");
+    i.src = LOGO_URL;
+    i.className = "brand-logo";
+    i.alt = "";
+    bm.appendChild(i);
+  }
+}
+
+function hideSplash() {
+  const sp = $("#splash");
+  if (!sp) return;
+  setTimeout(() => {
+    sp.classList.add("gone");
+    setTimeout(() => { if (sp.parentElement) sp.parentElement.removeChild(sp); }, 700);
+  }, 900);
+}
+
+function setupInstall() {
+  const btn = $("#installBtn");
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      if (!deferredInstall) return;
+      deferredInstall.prompt();
+      try { await deferredInstall.userChoice; } catch (e) { /* dismissed */ }
+      deferredInstall = null;
+      btn.hidden = true;
+    });
+  }
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    const b = $("#installBtn");
+    if (b) b.hidden = false;
+  });
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const tip = $("#iosInstallTip");
+  if (tip) tip.hidden = !(isIos && !standalone);
+  if (standalone) {
+    const card = $("#installCard");
+    if (card) card.hidden = true;
+  }
+}
+
+function registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW registration failed:", e));
+  });
+}
+
 /* ---------- boot ---------- */
 function wireEvents() {
   document.querySelectorAll("[data-go]").forEach((b) => {
@@ -1551,10 +1813,15 @@ function wireEvents() {
 }
 
 async function boot() {
+  applyBranding();
+  hideSplash();
   buildCoachPanel("nutrition");
   buildCoachPanel("gym");
   wkRestore();
-  buildWorkoutWidget();
+  ckRestore();
+  buildTimerUI();
+  setupInstall();
+  registerSW();
   wireEvents();
   if (!db) {
     toast("Firebase failed to initialize — check your connection", true);
