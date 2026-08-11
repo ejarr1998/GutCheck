@@ -179,6 +179,11 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 .meal-est { font-size: 13px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
 .fuel-edit { flex: 1; }
 .fuel-edit input { margin-top: 4px; }
+.fuel-input-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.fuel-input-row .fuel-edit { white-space: nowrap; } /* keep "protein (g)" on one line so both labels are the same height and inputs line up */
+.fuel-btn-row { display: flex; gap: 8px; }
+.fuel-btn-row .btn { flex: 1; }
+.fuel-btn-row .btn.icon-only { flex: 0 0 44px; padding-left: 0; padding-right: 0; text-align: center; }
 .meal-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); vertical-align: middle; margin-right: 8px; }
 
 /* ---------- buttons / inputs ---------- */
