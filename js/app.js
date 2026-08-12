@@ -1009,12 +1009,10 @@ function showHeatmapDay(k, info) {
   const dateLabel = new Date(k + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const head = el("div", "hd-head");
   head.appendChild(el("div", "hd-date", dateLabel));
-  if (info) {
-    const editBtn = el("button", "link-btn hd-edit", "✏️ Edit");
-    editBtn.type = "button";
-    editBtn.addEventListener("click", () => editWorkoutDay(k, info));
-    head.appendChild(editBtn);
-  }
+  const editBtn = el("button", "link-btn hd-edit", info ? "✏️ Edit" : "+ Log this day");
+  editBtn.type = "button";
+  editBtn.addEventListener("click", () => editWorkoutDay(k, info || { tags: [], entries: [] }));
+  head.appendChild(editBtn);
   detail.appendChild(head);
   if (!info) {
     detail.appendChild(el("div", "hd-row", "Rest day — no workout logged."));
@@ -1999,12 +1997,13 @@ function renderWk() {
   if (!body) return;
   while (body.firstChild) body.removeChild(body.firstChild);
   const editing = !!wkLog.editKey;
+  const isNewDay = editing && !wkLog.editEntryIds.length;
   const title = editing
-    ? "✏️ Edit — " + new Date(wkLog.editKey + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    ? (isNewDay ? "📋 Log — " : "✏️ Edit — ") + new Date(wkLog.editKey + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
     : "📋 Log workout";
   sheetHead(body, title);
   body.appendChild(el("p", "timer-hint", editing
-    ? "Tap to add or remove what you logged that day. Untap everything to clear it entirely."
+    ? "Tap everything that applies, then save. Untap everything to leave it as a rest day."
     : "Tap everything you did today, then log it. Don't see it? Add your own — it'll show up here from now on."));
 
   // when editing, show any already-logged tags even if they aren't in the master list
@@ -2029,9 +2028,9 @@ function renderWk() {
   body.appendChild(grid);
 
   const btn = el("button", "btn big", editing
-    ? (wkLog.selected.length ? "Save: " + wkLog.selected.join(", ") : "Save (clear this day)")
+    ? (wkLog.selected.length ? (isNewDay ? "Log " : "Save: ") + wkLog.selected.join(", ") : (isNewDay ? "Log workout" : "Save (clear this day)"))
     : (wkLog.selected.length ? "Log " + wkLog.selected.join(", ") : "Log workout"));
-  btn.disabled = !editing && !wkLog.selected.length;
+  btn.disabled = !wkLog.selected.length && (!editing || isNewDay);
   btn.addEventListener("click", editing ? saveWorkoutEdit : logWorkout);
   body.appendChild(btn);
 }
