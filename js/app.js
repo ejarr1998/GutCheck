@@ -1322,6 +1322,18 @@ function botRow(coachId, bubble) {
   return row;
 }
 
+/* Renders a user chat message with the "remember" trigger phrase highlighted
+   in a distinct pill, so the client can SEE that the message was treated as
+   a memory instruction. (REMEMBER_RE lives by sendCoachMessage, hoisted use
+   here is fine since it's a const evaluated before any render.) */
+function appendUserContent(div, text) {
+  const m = (text || "").match(REMEMBER_RE);
+  if (!m) { div.appendChild(document.createTextNode(text || "")); return; }
+  div.appendChild(document.createTextNode(text.slice(0, m.index)));
+  div.appendChild(el("span", "remember-hit", m[0]));
+  div.appendChild(document.createTextNode(text.slice(m.index + m[0].length)));
+}
+
 function renderChat(coachId) {
   const meta = COACHES[coachId];
   const wrap = $("#chatScroll-" + coachId);
@@ -1362,7 +1374,8 @@ function renderChat(coachId) {
       im.className = "chat-img";
       div.appendChild(im);
     }
-    div.appendChild(document.createTextNode(m.content));
+    if (m.role === "user") appendUserContent(div, m.content);
+    else div.appendChild(document.createTextNode(m.content));
     const foot = el("span", "time", fmtTime(m.at));
     div.appendChild(foot);
     if (m.role !== "user") {
@@ -1373,6 +1386,9 @@ function renderChat(coachId) {
       wrap.appendChild(botRow(coachId, div));
     } else {
       wrap.appendChild(div);
+      if (m.remembered) {
+        wrap.appendChild(el("div", "remember-note", "🧠 Saved to " + meta.short + "'s memory — see it in Settings"));
+      }
     }
   });
 
@@ -1447,7 +1463,9 @@ function coachSystemParts(coachId) {
     "\n- Remember the conversation history and build on it." +
     "\n- Use the client's first name naturally sometimes (greetings, check-ins) — not every message, just like a real coach would." +
     "\n- LONG-TERM MEMORY: you have a remember_fact tool. Call it sparingly, only for something durable worth carrying forward even if this chat gets cleared — " +
-    "a real preference, an injury or health note, a routine change they've committed to. Never for small talk or one-off requests, and never for anything already in the client profile above.";
+    "a real preference, an injury or health note, a routine change they've committed to. Never for small talk or one-off requests, and never for anything already in the client profile above." +
+    " If the client explicitly asks you to remember or note something (\"remember\", \"add this to your memory\", \"don't forget\"), you MUST call remember_fact for it on that same turn — " +
+    "saying \"I've got it\" without calling the tool means the fact is lost the moment this chat is cleared.";
   if (coachId === "nutrition") {
     const todayKey = dayKey(new Date().toISOString());
     const todayMeals = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
@@ -1526,7 +1544,7 @@ function windowedHistory(full) {
   return full.slice(start);
 }
 
-async function callClaude(coachId) {
+async function callClaude(coachId, alreadyRemembered) {
   const history = windowedHistory(state.chats[coachId]).map((m) => {
     if (!m.img) return { role: m.role, content: m.content };
     return {
@@ -1538,10 +1556,19 @@ async function callClaude(coachId) {
     };
   });
   const parts = coachSystemParts(coachId);
+  // When the client already saved an explicit "remember …" fact, tell the
+  // coach it's done so it doesn't double-save — just acknowledge it.
+  let dynamic = parts.dynamic || "";
+  if (alreadyRemembered) {
+    dynamic += (dynamic ? "\n" : "") +
+      "MEMORY NOTE: the client explicitly asked you to remember this: \"" + alreadyRemembered + "\". " +
+      "It has ALREADY been saved to your long-term memory — do NOT call remember_fact for it again. " +
+      "Just briefly confirm you've noted it, in one short sentence.";
+  }
   const res = await fns.httpsCallable("coachCall")({
     system: parts.stable,
     systemMemory: parts.memory,
-    systemDynamic: parts.dynamic,
+    systemDynamic: dynamic,
     messages: history,
     useTools: true,
     coachId,
@@ -1554,8 +1581,8 @@ async function callClaude(coachId) {
     renderFoodHeatmap();
   }
   if (data.remembered) {
-    state.coachMemory[coachId] = state.coachMemory[coachId] || [];
-    state.coachMemory[coachId].push(data.remembered);
+    const arr = (state.coachMemory[coachId] = state.coachMemory[coachId] || []);
+    if (!arr.some((f) => f.toLowerCase() === String(data.remembered).toLowerCase())) arr.push(data.remembered);
   }
   if (!data.text) throw new Error("Coach returned an empty response");
   return data.text;
@@ -2330,6 +2357,32 @@ function renderCk() {
   body.appendChild(clr);
 }
 
+/* Explicit "please remember …" requests get a guaranteed, deterministic save
+   to long-term coach memory. The model's remember_fact tool stays as the
+   smart catch-all for facts it notices on its own, but a direct ask must
+   never depend on the model choosing to use the tool (it sometimes just says
+   "I've got it" and saves nothing). */
+const REMEMBER_RE = /(please\s+remember|remember\s+that|remember|keep in mind|don'?t forget|add\s+(?:this|that|it)?\s*to\s+(?:your\s+)?memory|save\s+(?:this|that|it)?\s*to\s+(?:your\s+)?memory|note\s+that)/i;
+
+function extractRememberFact(text) {
+  const m = (text || "").match(REMEMBER_RE);
+  if (!m) return null;
+  const fact = text.slice(m.index + m[0].length)
+    .replace(/^[\s:;,.\-—?!"')]+/, "")
+    .replace(/^(the fact|that|this)\s+/i, "")
+    .trim();
+  return fact.length >= 4 ? fact.slice(0, 200) : null;
+}
+
+async function saveCoachMemoryFact(coachId, fact) {
+  const arr = (state.coachMemory[coachId] = state.coachMemory[coachId] || []);
+  if (arr.some((f) => f.toLowerCase() === fact.toLowerCase())) return false; // already known
+  state.coachMemory[coachId] = arr.concat([fact]).slice(-40);
+  await db.collection(ucol("settings")).doc("coachMemory").set(state.coachMemory);
+  renderMemoryList(); // keep the Settings list live if it's on screen
+  return true;
+}
+
 async function sendCoachMessage(coachId, text) {
   if (state.sending[coachId]) return;
   const img = state.attach[coachId] || null;
@@ -2337,6 +2390,7 @@ async function sendCoachMessage(coachId, text) {
   $("#chatInput-" + coachId).value = "";
   state.attach[coachId] = null;
   renderAttachPrev(coachId);
+  const rememberFact = extractRememberFact(text);
   try {
     await addChatMsg(coachId, "user", text || "", img);
   } catch (e) {
@@ -2347,11 +2401,27 @@ async function sendCoachMessage(coachId, text) {
     toast("Message didn't send: " + e.message + " — is Firestore created in the Firebase console?", true);
     return;
   }
+  // Guaranteed memory write for explicit "remember …" asks — flag the chat
+  // message too so renderChat can show it was saved.
+  let rememberedSaved = false;
+  if (rememberFact) {
+    try {
+      rememberedSaved = await saveCoachMemoryFact(coachId, rememberFact);
+      if (rememberedSaved) {
+        const mine = state.chats[coachId][state.chats[coachId].length - 1];
+        if (mine && mine.id) {
+          mine.remembered = rememberFact;
+          db.collection(ucol("chats")).doc(coachId).collection("messages").doc(mine.id)
+            .set({ remembered: rememberFact }, { merge: true }).catch(() => {});
+        }
+      }
+    } catch (e) { console.warn("memory save failed:", e); }
+  }
   renderChat(coachId);
   scrollChatBottom(coachId, true);
   let reply;
   try {
-    reply = await callClaude(coachId);
+    reply = await callClaude(coachId, rememberedSaved ? rememberFact : null);
   } catch (e) {
     reply = "Hmm, my brain hiccuped: " + e.message + ". Check the API key in Settings and try again.";
   }
