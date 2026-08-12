@@ -1,7 +1,7 @@
 /* GutCheck service worker — offline app shell + PWA installability.
    Same-origin GETs: network-first, cache as offline fallback.
    Cross-origin (Firebase, Anthropic, Deepgram, xAI): always network. */
-const CACHE = "gutcheck-v46";
+const CACHE = "gutcheck-v47";
 const SHELL = ["./", "index.html", "css/style.css", "js/app.js", "js/social.js", "js/nav.js", "js/logo.js", "manifest.json"];
 
 /* ---------- push notifications (FCM background handler) ----------
@@ -36,11 +36,21 @@ try {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || "./";
+  const data = e.notification.data || {};
+  const url = data.url || "./";
+  // deep-link into the sender's conversation; if the app is already open,
+  // message it instead of opening a duplicate tab
+  const deepLink = data.fromUid ? url.split("#")[0] + "#convo=" + encodeURIComponent(data.fromUid) : url;
   e.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      for (const c of list) { if ("focus" in c) return c.focus(); }
-      if (clients.openWindow) return clients.openWindow(url);
+      for (const c of list) {
+        if ("focus" in c) {
+          c.focus();
+          if (data.fromUid) c.postMessage({ type: "gc-open-convo", uid: data.fromUid });
+          return;
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(deepLink);
     })
   );
 });

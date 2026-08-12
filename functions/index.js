@@ -352,17 +352,25 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
 /* ---------- push notifications: send on new thread message (covers nudges too,
    since a nudge is just sendThreadMessage() with a canned string) ---------- */
 
-async function sendPushToUser(uid, { title, body, tag, url }) {
+async function sendPushToUser(uid, { title, body, tag, url, fromUid }) {
   const ref = db.doc(`users/${uid}/settings/push`);
   const snap = await ref.get();
-  const tokens = (snap.exists && Array.isArray(snap.data().tokens)) ? snap.data().tokens : [];
-  if (!tokens.length) return;
+  const raw = (snap.exists && Array.isArray(snap.data().tokens)) ? snap.data().tokens : [];
+  if (!raw.length) return;
+  // Tokens are {token, standalone} objects (plain strings are legacy/unknown).
+  // If the account has the PWA installed AND a browser session, both hold FCM
+  // tokens and the phone shows every notification twice — so when at least
+  // one standalone (installed PWA) token exists, send ONLY to those.
+  const entries = raw.map((t) => (typeof t === "string" ? { token: t, standalone: false } : t)).filter((t) => t && t.token);
+  const pwa = entries.filter((t) => t.standalone);
+  const targets = (pwa.length ? pwa : entries).map((t) => t.token);
+  if (!targets.length) return;
   let res;
   try {
     res = await admin.messaging().sendEachForMulticast({
       notification: { title, body },
-      data: { url: url || "./", tag: tag || "gutcheck" },
-      tokens,
+      data: { url: url || "./", tag: tag || "gutcheck", fromUid: fromUid || "" },
+      tokens: targets,
     });
   } catch (e) {
     console.error("Push send failed:", e);
@@ -373,11 +381,11 @@ async function sendPushToUser(uid, { title, body, tag, url }) {
   res.responses.forEach((r, i) => {
     const code = r.error && r.error.code;
     if (!r.success && (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token")) {
-      dead.push(tokens[i]);
+      dead.push(targets[i]);
     }
   });
   if (dead.length) {
-    await ref.set({ tokens: tokens.filter((t) => !dead.includes(t)) }, { merge: true });
+    await ref.set({ tokens: entries.filter((t) => !dead.includes(t.token)) }, { merge: true });
   }
 }
 
@@ -402,6 +410,7 @@ exports.onThreadMessage = onDocumentCreated("threads/{pair}/messages/{messageId}
     body: text.slice(0, 140),
     tag: "thread-" + pair,
     url: "./",
+    fromUid: msg.from,
   });
 });
 

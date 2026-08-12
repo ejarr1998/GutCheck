@@ -118,12 +118,28 @@ async function socialBoot() {
   startMsgListener();
   socialCheckStreakCard();
   initPush();
+  // tapping an OS push notification deep-links straight into that conversation
+  // (openConvo marks it seen, which also clears the tab indicator)
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", (e) => {
+      if (e.data && e.data.type === "gc-open-convo" && e.data.uid) {
+        go("social"); switchSocialView("messages"); openConvo(e.data.uid);
+      }
+    });
+  }
+  const hashMatch = (location.hash || "").match(/^#convo=(.+)$/);
+  if (hashMatch) {
+    const uid = decodeURIComponent(hashMatch[1]);
+    history.replaceState(null, "", location.pathname + location.search);
+    go("social"); switchSocialView("messages"); openConvo(uid);
+  } else {
   // reloading shouldn't dump you back on the feed if you were mid-conversation
   try {
     const saved = JSON.parse(localStorage.getItem("gutcheckSocialView") || "null");
     if (saved && saved.view === "convo" && saved.convoUid) openConvo(saved.convoUid);
     else if (saved && saved.view && saved.view !== "convo") switchSocialView(saved.view);
   } catch (e) { /* noop — just stays on the default feed view */ }
+  }
   if (!social.booted) {
     social.booted = true;
   }
@@ -686,9 +702,13 @@ async function openConvo(uid) {
   $("#socialConvo").classList.remove("head-hidden");
   subscribeConvo();
   await loadConvo();
-  // mark seen
+  // mark seen — use the thread's lastAt if it's ahead of our clock, otherwise
+  // a sender whose clock is even slightly ahead keeps the unread badge lit
+  // right after you opened the conversation from the banner or a notification
   const key = pairKey(state.uid, uid);
-  social.lastMsgSeen[key] = new Date().toISOString();
+  const nowIso = new Date().toISOString();
+  const t0 = social.threads.find((x) => x.id === key);
+  social.lastMsgSeen[key] = t0 && (t0.lastAt || "") > nowIso ? t0.lastAt : nowIso;
   localStorage.setItem("socialMsgSeen", JSON.stringify(social.lastMsgSeen));
   updateMsgBadge();
 }
@@ -1140,13 +1160,24 @@ async function initPush() {
   renderPushToggle();
 }
 
+function isStandalonePwa() {
+  return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+}
+
 async function refreshPushToken() {
   if (!fcmMessaging || !pushSwReg) return null;
   const token = await fcmMessaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: pushSwReg });
   if (token) {
-    await db.collection(ucol("settings")).doc("push").set(
-      { tokens: firebase.firestore.FieldValue.arrayUnion(token) }, { merge: true }
-    );
+    // Store {token, standalone} so the server can prefer the installed PWA
+    // when the same account is signed in on both browser and PWA — otherwise
+    // the phone shows every notification twice. Legacy plain-string tokens
+    // are treated as "unknown" and only used when no PWA token exists.
+    const ref = db.collection(ucol("settings")).doc("push");
+    const snap = await ref.get().catch(() => null);
+    const arr = (snap && snap.exists && Array.isArray(snap.data().tokens)) ? snap.data().tokens : [];
+    const kept = arr.filter((t) => (typeof t === "string" ? t : t && t.token) !== token);
+    kept.push({ token, standalone: isStandalonePwa(), at: new Date().toISOString() });
+    await ref.set({ tokens: kept }, { merge: true });
   }
   return token;
 }
@@ -1175,9 +1206,11 @@ async function disablePushNotifications() {
     if (fcmMessaging && pushSwReg) {
       const token = await fcmMessaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: pushSwReg }).catch(() => null);
       if (token) {
-        await db.collection(ucol("settings")).doc("push").set(
-          { tokens: firebase.firestore.FieldValue.arrayRemove(token) }, { merge: true }
-        );
+        // tokens may be plain strings (legacy) or {token, standalone} objects
+        const ref = db.collection(ucol("settings")).doc("push");
+        const snap = await ref.get().catch(() => null);
+        const arr = (snap && snap.exists && Array.isArray(snap.data().tokens)) ? snap.data().tokens : [];
+        await ref.set({ tokens: arr.filter((t) => (typeof t === "string" ? t : t && t.token) !== token) }, { merge: true });
       }
     }
   } catch (e) { /* best effort — the token will just go stale and get pruned server-side */ }
