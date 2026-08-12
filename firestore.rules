@@ -13,6 +13,67 @@ service cloud.firestore {
       allow read, write: if isOwner(uid);
     }
 
+    // ---- Social (closed group: every signed-in member sees everything) ----
+
+    // Who's who: name/avatar/contact. Everyone can read; you write only yours.
+    match /directory/{uid} {
+      allow read: if isSignedIn();
+      // avatar is a small base64 thumb (~20KB); 200KB cap blocks junk uploads.
+      allow write: if isOwner(uid)
+        && (!request.resource.data.keys().hasAny(["avatar"])
+            || (request.resource.data.avatar is string
+                && request.resource.data.avatar.size() <= 200000));
+    }
+
+    // Feed posts: readable by the whole group; authors create/delete their own.
+    // No updates — posts are immutable once written (client never edits).
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.caption is string
+        && request.resource.data.caption.size() <= 1000;
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 500;
+        allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      }
+      // One reaction doc per user (doc id = uid).
+      match /reactions/{uid} {
+        allow read: if isSignedIn();
+        allow write: if isOwner(uid);
+      }
+    }
+
+    // 1:1 message threads. Thread doc id is "<uidA>_<uidB>" (sorted), so only
+    // the two members can ever touch it. Thread list queries must constrain
+    // on members (client uses where("members", "array-contains", uid)).
+    function inThread(pair) {
+      return isSignedIn() && request.auth.uid in pair.split("_");
+    }
+    match /threads/{pair} {
+      allow get: if inThread(pair);
+      allow list: if isSignedIn() && request.auth.uid in resource.data.members;
+      // members must always be exactly the two uids in the doc id — nobody can
+      // smuggle a third reader in or lock the other member out.
+      allow create: if inThread(pair)
+        && request.resource.data.members == pair.split("_");
+      allow update: if inThread(pair)
+        && request.resource.data.members == resource.data.members;
+      match /messages/{messageId} {
+        allow read: if inThread(pair);
+        allow create: if inThread(pair)
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 1000;
+      }
+    }
+
     // TODO(ethan): DELETE THIS ENTIRE BLOCK once migration is verified and the
     // legacy collections are removed from the console. Until then it is a
     // standing admin-wide hole over those 7 collections — it exists solely so

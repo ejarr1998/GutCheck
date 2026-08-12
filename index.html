@@ -359,10 +359,73 @@
   </section>
 
   <!-- ============ SETTINGS ============ -->
+  <!-- ============ SOCIAL ============ -->
+  <section class="tab-panel" id="panel-social" hidden>
+    <div class="seg" id="socialSeg">
+      <button data-sview="feed" class="on">Feed</button>
+      <button data-sview="people">People</button>
+      <button data-sview="messages">Messages <span class="seg-badge" id="msgBadge" hidden></span></button>
+    </div>
+
+    <!-- feed -->
+    <div id="socialFeed" class="sview">
+      <div class="composer">
+        <div class="composer-row">
+          <div class="avatar" id="composerAvatar"></div>
+          <textarea id="postCaption" rows="2" placeholder="Share a win, a meal, a sweaty selfie…"></textarea>
+        </div>
+        <div class="attach-prev" id="postPhotoPrev" hidden></div>
+        <div class="composer-actions">
+          <button class="btn ghost sm" type="button" id="postPhotoBtn">📷 Photo</button>
+          <button class="btn sm" type="button" id="postShareBtn">Share</button>
+        </div>
+      </div>
+      <div id="feedList"></div>
+      <p class="hint" id="feedEmpty" hidden>No posts yet — be the first to share something. 👊</p>
+    </div>
+
+    <!-- people -->
+    <div id="socialPeople" class="sview" hidden>
+      <div id="peopleList"></div>
+    </div>
+
+    <!-- message threads -->
+    <div id="socialMessages" class="sview" hidden>
+      <div id="threadList"></div>
+      <p class="hint" id="threadsEmpty" hidden>No conversations yet — tap Message on someone in the People tab.</p>
+    </div>
+
+    <!-- single conversation -->
+    <div id="socialConvo" class="sview" hidden>
+      <div class="convo-head">
+        <button class="icon-btn" type="button" id="convoBack" title="Back">←</button>
+        <div class="avatar" id="convoAvatar"></div>
+        <div class="convo-name" id="convoName"></div>
+        <button class="btn ghost sm" type="button" id="convoNudge">💪 Nudge</button>
+      </div>
+      <div class="convo-scroll" id="convoScroll"></div>
+      <form class="convo-input" id="convoForm">
+        <input id="convoText" placeholder="Message…" autocomplete="off">
+        <button class="btn sm" type="submit">Send</button>
+      </form>
+    </div>
+  </section>
+
   <section class="tab-panel" id="panel-settings" hidden>
     <div class="page-head">
       <h1>Settings</h1>
       <p class="sub">Your profile powers both coaches' advice.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">🖼 Profile picture</h2>
+      <div class="avatar-row">
+        <div class="avatar lg" id="settingsAvatar"></div>
+        <div class="avatar-side">
+          <button class="btn ghost" type="button" id="avatarUploadBtn">Upload photo</button>
+          <p class="hint left">Shown next to your posts, comments and messages in Social.</p>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -447,6 +510,7 @@
   <button data-go="photos" class="tab-btn"><span class="tab-ico">📸</span>Photos</button>
   <button data-go="nutrition" class="tab-btn"><span class="tab-ico">🥗</span>Nutritionist</button>
   <button data-go="gym" class="tab-btn"><span class="tab-ico">🏋️</span>Coach</button>
+  <button data-go="social" class="tab-btn"><span class="tab-ico">👥</span>Social</button>
 </nav>
 
 <div class="toast" id="toast" hidden></div>
@@ -484,7 +548,23 @@
     </div>
   </div>
 
+  <!-- comments sheet (body-level overlay like the other gates) -->
+  <div class="confirm-gate sheet-gate" id="commentSheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <span class="sheet-title">Comments</span>
+        <button class="icon-btn" type="button" id="commentClose" title="Close">✕</button>
+      </div>
+      <div class="sheet-scroll" id="commentList"></div>
+      <form class="convo-input" id="commentForm">
+        <input id="commentText" placeholder="Add a comment…" autocomplete="off">
+        <button class="btn sm" type="submit">Post</button>
+      </form>
+    </div>
+  </div>
+
 <script src="js/logo.js"></script>
 <script src="js/app.js"></script>
+<script src="js/social.js"></script>
 </body>
 </html>

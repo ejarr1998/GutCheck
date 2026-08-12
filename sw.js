@@ -1,8 +1,8 @@
 /* GutCheck service worker — offline app shell + PWA installability.
    Same-origin GETs: network-first, cache as offline fallback.
    Cross-origin (Firebase, Anthropic, Deepgram, xAI): always network. */
-const CACHE = "gutcheck-v30";
-const SHELL = ["./", "index.html", "css/style.css", "js/app.js", "js/logo.js", "manifest.json"];
+const CACHE = "gutcheck-v31";
+const SHELL = ["./", "index.html", "css/style.css", "js/app.js", "js/social.js", "js/logo.js", "manifest.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

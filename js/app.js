@@ -316,7 +316,7 @@ function syncFsBtn() {
 }
 
 /* ---------- tabs ---------- */
-const TABS = ["dashboard", "photos", "nutrition", "gym", "settings"];
+const TABS = ["dashboard", "photos", "nutrition", "gym", "social", "settings"];
 function go(tab) {
   state.tab = tab;
   stopSpeaking();
@@ -705,6 +705,7 @@ async function saveMealEntry() {
     renderMealTotals();
     renderFoodHeatmap();
     toast("Meal logged");
+    if (window.socialOnMealLogged) socialOnMealLogged();
   } catch (e) {
     toast("Save failed: " + e.message, true);
   } finally {
@@ -2121,6 +2122,7 @@ async function logWorkout() {
     state.workouts.push({ id: ref.id, ...entry });
     renderHeatmap();
     toast("Logged: " + entry.tags.join(", ") + " 💪");
+    if (window.socialOnWorkoutLogged) socialOnWorkoutLogged(entry.tags);
   } catch (e) {
     toast("Couldn't save that workout: " + e.message, true);
     return;
@@ -2411,6 +2413,11 @@ async function onSaveProfile() {
     renderDashboard();
     toast("Profile saved — your coaches will use it");
   } catch (e) { toast("Save failed: " + e.message, true); }
+  // name/avatar changes should reach the Social directory immediately
+  if (window.socialSyncDirectory) {
+    localStorage.removeItem("socialDirSig");
+    window.socialSyncDirectory();
+  }
 }
 
 /* ---------- first-run guided setup ---------- */
@@ -3078,6 +3085,7 @@ async function startApp() {
   renderSettings();
   // Brand-new accounts (and Ethan post-migration, once) get the guided setup.
   if (!state.hasProfileDoc || !state.profile.onboarded) openOnboarding();
+  if (window.socialBoot) socialBoot();
 }
 
 document.addEventListener("DOMContentLoaded", boot);
