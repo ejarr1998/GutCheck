@@ -582,9 +582,20 @@ function takeCameraPhoto(onFile) {
 // Plain file input, no "capture" attribute — on mobile this opens the native
 // chooser with both Camera and Photo Library options, so one button covers both.
 function pickMealPhoto() {
+  // One Upload button -> choose camera or library first (Android Chrome
+  // doesn't offer the native choice, so we ask explicitly).
+  const gate = $("#photoPickGate");
+  gate.hidden = false;
+  $("#pickCameraBtn").onclick = () => { gate.hidden = true; openMealPhotoInput("environment"); };
+  $("#pickLibraryBtn").onclick = () => { gate.hidden = true; openMealPhotoInput(null); };
+  $("#pickCancelBtn").onclick = () => { gate.hidden = true; };
+}
+
+function openMealPhotoInput(capture) {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
+  if (capture) input.capture = capture;
   input.addEventListener("change", async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;

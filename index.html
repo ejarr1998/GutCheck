@@ -299,16 +299,6 @@
       </div>
       <div class="viewer-body"><img id="viewerImg" alt="progress photo"></div>
     </div>
-
-    <div class="confirm-gate" id="confirmGate" hidden>
-      <div class="confirm-card">
-        <p class="confirm-msg" id="confirmMsg"></p>
-        <div class="row-form confirm-btns">
-          <button class="btn danger" type="button" id="confirmYes">Delete</button>
-          <button class="btn ghost" type="button" id="confirmNo">Keep it</button>
-        </div>
-      </div>
-    </div>
   </section>
 
   <!-- ============ COACHES ============ -->
@@ -438,6 +428,28 @@
 </nav>
 
 <div class="toast" id="toast" hidden></div>
+
+  <!-- global overlays (must live outside tab panels so they show on every tab) -->
+  <div class="confirm-gate" id="confirmGate" hidden>
+    <div class="confirm-card">
+      <p class="confirm-msg" id="confirmMsg"></p>
+      <div class="row-form confirm-btns">
+        <button class="btn danger" type="button" id="confirmYes">Delete</button>
+        <button class="btn ghost" type="button" id="confirmNo">Keep it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="confirm-gate" id="photoPickGate" hidden>
+    <div class="confirm-card">
+      <p class="confirm-msg">Add a meal photo</p>
+      <div class="row-form confirm-btns">
+        <button class="btn" type="button" id="pickCameraBtn">📷 Take photo</button>
+        <button class="btn ghost" type="button" id="pickLibraryBtn">Choose photo</button>
+      </div>
+      <button class="link-btn center-btn" type="button" id="pickCancelBtn">Cancel</button>
+    </div>
+  </div>
 
 <script src="js/logo.js"></script>
 <script src="js/app.js"></script>
