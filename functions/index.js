@@ -170,14 +170,22 @@ async function callAnthropic(apiKey, body) {
 /* ---------- coachCall: Claude chat + Maya's tool loop ---------- */
 exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => {
   const uid = await guard(request);
-  const { system, systemDynamic, messages, useTools, targets, coachId } = request.data || {};
+  const { system, systemMemory, systemDynamic, messages, useTools, targets, coachId } = request.data || {};
   if (typeof system !== "string" || !system || system.length > 8000) {
     throw new HttpsError("invalid-argument", "Missing or oversized system prompt.");
   }
-  // Stable persona/rules/profile block is cached (ephemeral); the volatile
-  // "logged so far today" line rides as a second, uncached block so logging a
-  // meal doesn't blow the cache on the very next round.
-  const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+  // Three-tier system prompt, cheapest-to-priciest to keep as fresh input tokens:
+  //  1. stable persona/rules/profile — changes almost never, 1-hour cache
+  //  2. long-term memory — changes only when remember_fact fires, 1-hour cache
+  //     (kept separate from #3 so a meal log doesn't blow this cache too)
+  //  3. today's food log so far — genuinely volatile, stays uncached
+  // 1h TTL (vs the 5-min default) matters here specifically because this is a
+  // low-frequency app — people often go 20+ minutes between messages, which
+  // was expiring the cache before it ever got reused.
+  const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral", ttl: "1h" } }];
+  if (typeof systemMemory === "string" && systemMemory) {
+    systemBlocks.push({ type: "text", text: systemMemory, cache_control: { type: "ephemeral", ttl: "1h" } });
+  }
   if (typeof systemDynamic === "string" && systemDynamic) {
     systemBlocks.push({ type: "text", text: systemDynamic });
   }

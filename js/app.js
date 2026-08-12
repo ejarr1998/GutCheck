@@ -1417,7 +1417,7 @@ function showAvatarFull(coachId) {
 function memoryBlockFor(coachId) {
   const facts = (state.coachMemory && state.coachMemory[coachId]) || [];
   if (!facts.length) return "";
-  return "\n\nLONG-TERM MEMORY (persists even if the client clears this chat) — things you've learned about them over time:\n" +
+  return "LONG-TERM MEMORY (persists even if the client clears this chat) — things you've learned about them over time:\n" +
     facts.map((f) => "- " + f).join("\n");
 }
 
@@ -1449,10 +1449,12 @@ function coachSystemParts(coachId) {
     const todayMeals = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
     const calSoFar = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
     const proteinSoFar = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
-    const dynamic = (todayMeals.length
+    // Genuinely volatile (changes every meal logged) — kept separate from the
+    // memory block below so logging a meal doesn't blow the memory cache too.
+    const dynamic = todayMeals.length
       ? "LOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
         todayMeals.map((m) => m.name || m.description || m.desc || "a logged meal").join(", ") + ". Use this to say what's left for the day, not just the flat daily target."
-      : "Nothing logged yet today — no need to mention this unless it's relevant.") + memoryBlockFor("nutrition");
+      : "Nothing logged yet today — no need to mention this unless it's relevant.";
     const me = COACHES.nutrition.short;
     const other = COACHES.gym.short;
     return {
@@ -1472,6 +1474,7 @@ function coachSystemParts(coachId) {
         "including meals the client logged themselves on the home screen, not just ones you logged. " +
         "When the client asks what they've eaten, what's in their tracker, or what's left today, answer straight from that section with the item names and numbers. " +
         "Never say you can't see the log or the dashboard — you can.",
+      memory: memoryBlockFor("nutrition"),
       dynamic,
     };
   }
@@ -1489,7 +1492,8 @@ function coachSystemParts(coachId) {
       "You work alongside " + otherG + ", the nutritionist, who lives in the Nutritionist tab. " +
       "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's " + otherG + "'s department — ask " + otherG + " in the Nutritionist tab.\" " +
       "Never write out meal plans or calorie breakdowns.",
-    dynamic: memoryBlockFor("gym"),
+    memory: memoryBlockFor("gym"),
+    dynamic: "",
   };
 }
 
@@ -1511,6 +1515,7 @@ async function callClaude(coachId) {
   const parts = coachSystemParts(coachId);
   const res = await fns.httpsCallable("coachCall")({
     system: parts.stable,
+    systemMemory: parts.memory,
     systemDynamic: parts.dynamic,
     messages: history,
     useTools: true,

@@ -767,6 +767,7 @@ body.kbd-open .tabbar { display: none; }
   margin: 10px 0 4px;
 }
 .bubble {
+  position: relative;
   max-width: 78%; padding: 9px 12px; border-radius: 16px;
   display: flex; flex-direction: column; gap: 2px;
 }
@@ -781,9 +782,20 @@ body.kbd-open .tabbar { display: none; }
 .bubble-text { font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble-time { font-size: 10px; opacity: .65; align-self: flex-end; }
 
+/* small "delete for everyone" corner button — only rendered on your own messages */
+.msg-del {
+  position: absolute; top: -8px; right: -8px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--card); border: 1px solid var(--border); color: var(--muted);
+  font-size: 11px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+}
+.msg-del:hover { color: var(--danger); border-color: var(--danger); }
+
 /* nudges get their own look — a centered highlight card, not a speech bubble,
    so it reads as "an event that happened" rather than a typed message */
 .nudge-card {
+  position: relative;
   align-self: center; max-width: 88%; margin: 8px 0;
   display: flex; align-items: flex-start; gap: 10px;
   background: linear-gradient(135deg, rgba(163,230,53,.16), rgba(163,230,53,.05));

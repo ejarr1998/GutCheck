@@ -71,6 +71,8 @@ service cloud.firestore {
           && request.resource.data.from == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() <= 1000;
+        // "delete for everyone" — only the sender can remove their own message.
+        allow delete: if inThread(pair) && resource.data.from == request.auth.uid;
       }
     }
 

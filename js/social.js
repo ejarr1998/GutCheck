@@ -482,7 +482,8 @@ function parseNudge(text) {
 
 function previewText(text) {
   const line = parseNudge(text);
-  return line ? "💪 " + line : (text || "").slice(0, 60);
+  if (line) return "💪 " + line;
+  return text ? text.slice(0, 60) : "No messages yet";
 }
 
 async function sendNudge(uid) {
@@ -699,6 +700,14 @@ async function loadConvo() {
   renderConvo();
 }
 
+function msgDelBtn(messageId) {
+  const del = el("button", "msg-del", "✕");
+  del.type = "button";
+  del.title = "Delete for both of you";
+  del.addEventListener("click", (e) => { e.stopPropagation(); deleteConvoMessage(messageId); });
+  return del;
+}
+
 function renderConvo() {
   const box = $("#convoScroll");
   while (box.firstChild) box.removeChild(box.firstChild);
@@ -720,12 +729,14 @@ function renderConvo() {
       body.appendChild(el("div", "nudge-text", nudgeLine));
       body.appendChild(el("div", "nudge-time", time));
       card.appendChild(body);
+      if (mine) card.appendChild(msgDelBtn(m.id));
       box.appendChild(card);
       return;
     }
     const bubble = el("div", "bubble " + (mine ? "mine" : "theirs"));
     bubble.appendChild(el("span", "bubble-text", m.text));
     bubble.appendChild(el("span", "bubble-time", time));
+    if (mine) bubble.appendChild(msgDelBtn(m.id));
     box.appendChild(bubble);
   });
   // the convo list is part of the normal page flow now (like the coach chats),
@@ -758,6 +769,35 @@ async function sendConvo() {
     await loadConvo();
     loadThreads();
   } catch (e) { toast("Couldn't send: " + e.message, true); }
+}
+
+// "Delete for everyone" — removes the one shared Firestore doc, so it's gone
+// from both people's view. Rules restrict this to messages you sent.
+async function deleteConvoMessage(messageId) {
+  if (!(await confirmAction("Delete this message for both of you? This can't be undone."))) return;
+  const key = pairKey(state.uid, social.convoUid);
+  try {
+    await db.collection("threads").doc(key).collection("messages").doc(messageId).delete();
+    social.convoMsgs = social.convoMsgs.filter((m) => m.id !== messageId);
+    renderConvo();
+    await refreshThreadPreview(key);
+  } catch (e) { toast("Couldn't delete: " + e.message, true); }
+}
+
+// If the deleted message was the thread's most recent one, the list/preview
+// needs to reflect whatever is now last (or go blank if nothing's left).
+async function refreshThreadPreview(key) {
+  try {
+    const snap = await db.collection("threads").doc(key).collection("messages")
+      .orderBy("createdAt", "desc").limit(1).get();
+    const ref = db.collection("threads").doc(key);
+    if (snap.empty) {
+      await ref.set({ lastText: "", lastAt: null, lastFrom: null }, { merge: true });
+    } else {
+      const last = snap.docs[0].data();
+      await ref.set({ lastText: (last.text || "").slice(0, 80), lastAt: last.createdAt, lastFrom: last.from }, { merge: true });
+    }
+  } catch (e) { /* thread preview just stays stale until the next message — not critical */ }
 }
 
 /* ---------- comments sheet ---------- */
