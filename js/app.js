@@ -2685,11 +2685,17 @@ async function signOut() {
 
 /* ---------- phone sign-in (Firebase invisible reCAPTCHA + SMS code) ---------- */
 let recaptchaVerifier = null;
+let recaptchaWidgetId = null;
 let phoneConfirmationResult = null;
 
-function ensureRecaptcha() {
+// Renders once per page load and is reused for every attempt — recreating a
+// RecaptchaVerifier on the same container after a failed send throws
+// "reCAPTCHA has already been rendered in this element". A failed attempt
+// just resets the existing widget instead of rebuilding it.
+async function ensureRecaptcha() {
   if (recaptchaVerifier) return recaptchaVerifier;
   recaptchaVerifier = new firebase.auth.RecaptchaVerifier("recaptchaContainer", { size: "invisible" });
+  recaptchaWidgetId = await recaptchaVerifier.render();
   return recaptchaVerifier;
 }
 
@@ -2715,7 +2721,7 @@ async function sendPhoneCode() {
   const originalLabel = btn.textContent;
   btn.textContent = "Sending…";
   try {
-    const verifier = ensureRecaptcha();
+    const verifier = await ensureRecaptcha();
     phoneConfirmationResult = await auth.signInWithPhoneNumber(phone, verifier);
     $("#phoneAuthNumber").textContent = phone;
     $("#phoneAuthStep1").hidden = true;
@@ -2723,9 +2729,9 @@ async function sendPhoneCode() {
     $("#phoneCodeInput").focus();
   } catch (e) {
     showAuthGate("Couldn't send code: " + (e.message || e.code || "unknown error"));
-    // the widget is single-use — drop it so a retry gets a fresh one
-    try { recaptchaVerifier.clear(); } catch (e2) { /* noop */ }
-    recaptchaVerifier = null;
+    // reset the existing widget so the next attempt gets a fresh token —
+    // do NOT recreate the verifier, that's what throws "already rendered"
+    try { if (window.grecaptcha && recaptchaWidgetId != null) window.grecaptcha.reset(recaptchaWidgetId); } catch (e2) { /* noop */ }
   } finally {
     btn.disabled = false;
     btn.textContent = originalLabel;
