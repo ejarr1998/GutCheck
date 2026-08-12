@@ -112,6 +112,7 @@ async function socialBoot() {
   renderComposerAvatars();
   await loadFeed();
   await loadThreads();
+  startMsgPolling();
   socialCheckStreakCard();
   if (!social.booted) {
     social.booted = true;
@@ -512,9 +513,41 @@ function renderThreads() {
 function updateMsgBadge() {
   const unread = social.threads.filter((t) => (t.lastAt || "") > (social.lastMsgSeen[t.id] || "") && (!t.lastFrom || t.lastFrom !== state.uid)).length;
   const badge = $("#msgBadge");
-  if (!badge) return;
-  badge.hidden = unread === 0;
-  badge.textContent = unread;
+  if (badge) {
+    badge.hidden = unread === 0;
+    badge.textContent = unread;
+  }
+  const tabDot = $("#socialTabDot");
+  if (tabDot) tabDot.hidden = unread === 0;
+}
+
+/* ---------- new-message notifications (45s polling) ---------- */
+// notifiedAt tracks the last lastAt we already toasted about, so we only
+// notify once per incoming message and never for stuff that pre-dates boot.
+const msgNotified = {};
+
+async function pollMessages() {
+  if (state.tab === "social" && social.view === "messages") return; // already fresh
+  await loadThreads();
+  social.threads.forEach((t) => {
+    const incoming = t.lastFrom && t.lastFrom !== state.uid;
+    const isNew = (t.lastAt || "") > (msgNotified[t.id] || "");
+    if (incoming && isNew) {
+      msgNotified[t.id] = t.lastAt;
+      const other = otherMember(t);
+      if (state.tab === "social" && social.view === "convo" && social.convoUid === other) {
+        loadConvo(); // sitting in this chat — just show it
+      } else {
+        toast("💬 " + personName(other) + ": " + (t.lastText || "").slice(0, 60));
+      }
+    }
+  });
+}
+
+function startMsgPolling() {
+  // baseline: everything that exists at boot is "already seen" for toasts
+  social.threads.forEach((t) => { msgNotified[t.id] = t.lastAt || ""; });
+  setInterval(pollMessages, 45000);
 }
 
 async function openConvo(uid) {

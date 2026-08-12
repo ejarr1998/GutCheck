@@ -822,3 +822,16 @@ body.kbd-open .tabbar { display: none; }
 .crop-frame img { position: absolute; top: 0; left: 0; max-width: none; user-select: none; pointer-events: none; }
 #cropZoom { width: calc(100% - 48px); margin: 8px 24px 16px; accent-color: var(--lime); }
 .crop-btns { padding: 0 24px; }
+
+/* unread dot on the Social tab button */
+.tab-btn { position: relative; }
+.tab-dot {
+  position: absolute; top: 4px; right: calc(50% - 18px);
+  width: 9px; height: 9px; border-radius: 50%; background: var(--danger);
+}
+
+/* iOS Safari auto-zooms the page when you focus any field under 16px —
+   that was the "screen zooms in after typing" bug. Force 16px on mobile. */
+@media (max-width: 760px) {
+  input, textarea, select { font-size: 16px !important; }
+}
