@@ -712,9 +712,42 @@ function msgDelBtn(messageId) {
   return del;
 }
 
+// Delete is only reachable by press-and-holding a message — attachLongPress
+// "arms" the pressed element (reveals its .msg-del button via CSS), and any
+// plain tap elsewhere (or on the armed message itself) disarms it again.
+let armedMsgEl = null;
+function disarmMsg() {
+  if (armedMsgEl) { armedMsgEl.classList.remove("armed"); armedMsgEl = null; }
+}
+function armMsg(target) {
+  if (armedMsgEl === target) return;
+  disarmMsg();
+  target.classList.add("armed");
+  armedMsgEl = target;
+}
+function attachLongPress(target) {
+  const HOLD_MS = 500;
+  let timer = null;
+  let moved = false;
+  const clear = () => { clearTimeout(timer); timer = null; };
+  target.addEventListener("pointerdown", () => {
+    moved = false;
+    clear();
+    timer = setTimeout(() => { if (!moved) armMsg(target); }, HOLD_MS);
+  });
+  target.addEventListener("pointermove", () => { moved = true; clear(); });
+  target.addEventListener("pointerup", clear);
+  target.addEventListener("pointercancel", clear);
+  // a plain tap (not a hold) on an already-armed message dismisses it
+  target.addEventListener("click", (e) => {
+    if (target.classList.contains("armed") && !e.target.closest(".msg-del")) disarmMsg();
+  });
+}
+
 function renderConvo() {
   const box = $("#convoScroll");
   while (box.firstChild) box.removeChild(box.firstChild);
+  armedMsgEl = null; // the DOM node it pointed to is about to be discarded
   let lastDay = "";
   social.convoMsgs.forEach((m) => {
     const day = dayKey(m.createdAt);
@@ -733,14 +766,14 @@ function renderConvo() {
       body.appendChild(el("div", "nudge-text", nudgeLine));
       body.appendChild(el("div", "nudge-time", time));
       card.appendChild(body);
-      if (mine) card.appendChild(msgDelBtn(m.id));
+      if (mine) { card.appendChild(msgDelBtn(m.id)); attachLongPress(card); }
       box.appendChild(card);
       return;
     }
     const bubble = el("div", "bubble " + (mine ? "mine" : "theirs"));
     bubble.appendChild(el("span", "bubble-text", m.text));
     bubble.appendChild(el("span", "bubble-time", time));
-    if (mine) bubble.appendChild(msgDelBtn(m.id));
+    if (mine) { bubble.appendChild(msgDelBtn(m.id)); attachLongPress(bubble); }
     box.appendChild(bubble);
   });
   // jump to the newest message inside the convo's own scrollbox, and keep the
@@ -1026,17 +1059,42 @@ function bindSocialUI() {
   const avBtn = $("#avatarUploadBtn");
   if (avBtn) avBtn.addEventListener("click", uploadAvatar);
   bindCrop();
-  // auto-hide the convo header: hides scrolling down, returns on any scroll up
+  // auto-hide the convo header: hides scrolling down, returns on any scroll
+  // up. Debounced (settles ~90ms after scrolling stops) and holds its state
+  // near either end of the scrollbox — momentum/rubber-band bounce at a
+  // boundary fires a burst of tiny alternating-direction scroll events that
+  // would otherwise retrigger the opacity/margin transition over and over,
+  // which is what caused the header to flicker for several seconds.
   const convoScroll = $("#convoScroll");
+  let convoScrollTimer = null;
   convoScroll.addEventListener("scroll", () => {
     if (suppressConvoHeadToggle) return;
     const y = convoScroll.scrollTop;
-    const d = y - lastConvoY;
-    lastConvoY = y;
-    if (y < 8) { $("#socialConvo").classList.remove("head-hidden"); return; }
-    if (d > 4) $("#socialConvo").classList.add("head-hidden");
-    else if (d < -4) $("#socialConvo").classList.remove("head-hidden");
+    const maxY = convoScroll.scrollHeight - convoScroll.clientHeight;
+    clearTimeout(convoScrollTimer);
+    if (y < 8) {
+      $("#socialConvo").classList.remove("head-hidden");
+      lastConvoY = y;
+      return;
+    }
+    if (y > maxY - 16) {
+      // right at the bottom — hold whatever state we're already in instead
+      // of reacting to bounce noise
+      lastConvoY = y;
+      return;
+    }
+    convoScrollTimer = setTimeout(() => {
+      const d = y - lastConvoY;
+      lastConvoY = y;
+      if (d > 4) $("#socialConvo").classList.add("head-hidden");
+      else if (d < -4) $("#socialConvo").classList.remove("head-hidden");
+    }, 90);
   }, { passive: true });
+  // tapping anywhere in the message list that isn't the currently-armed
+  // message dismisses the delete affordance
+  convoScroll.addEventListener("click", (e) => {
+    if (armedMsgEl && !e.target.closest(".armed")) disarmMsg();
+  });
   $("#msgBannerClose").addEventListener("click", (e) => { e.stopPropagation(); hideMsgBanner(); });
   $("#msgBanner").addEventListener("click", () => {
     const uid = bannerUid;
