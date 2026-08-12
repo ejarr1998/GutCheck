@@ -210,7 +210,12 @@ async function callAnthropic(apiKey, body) {
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new HttpsError("internal", "Claude API " + res.status + ": " + t.slice(0, 200));
+    // "internal" is one of only two HttpsError codes where Firebase strips
+    // the message before it reaches the client (for security) — replacing it
+    // with a bare "INTERNAL" string, exactly what showed up in chat. Using
+    // "unavailable" instead means the real Claude API status + error body
+    // actually reaches the client the next time something goes wrong here.
+    throw new HttpsError("unavailable", "Claude API " + res.status + ": " + t.slice(0, 200));
   }
   return res.json();
 }
@@ -369,7 +374,7 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
-      throw new HttpsError("internal", "Deepgram STT " + res.status + ": " + t.slice(0, 160));
+      throw new HttpsError("unavailable", "Deepgram STT " + res.status + ": " + t.slice(0, 160));
     }
     const data = await res.json();
     const alt = data.results && data.results.channels && data.results.channels[0] &&
@@ -397,7 +402,7 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
       });
       if (!res.ok) {
         const t = await res.text().catch(() => "");
-        throw new HttpsError("internal", "ElevenLabs TTS " + res.status + ": " + t.slice(0, 160));
+        throw new HttpsError("unavailable", "ElevenLabs TTS " + res.status + ": " + t.slice(0, 160));
       }
       const buf = Buffer.from(await res.arrayBuffer());
       return { audioBase64: buf.toString("base64"), mime: "audio/mpeg" };
@@ -414,7 +419,7 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
-      throw new HttpsError("internal", "Deepgram TTS " + res.status + ": " + t.slice(0, 160));
+      throw new HttpsError("unavailable", "Deepgram TTS " + res.status + ": " + t.slice(0, 160));
     }
     const buf = Buffer.from(await res.arrayBuffer());
     return { audioBase64: buf.toString("base64"), mime: "audio/mpeg" };
@@ -502,10 +507,10 @@ exports.avatarCall = onCall({ secrets: [XAI_API_KEY] }, async (request) => {
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new HttpsError("internal", "xAI " + res.status + ": " + t.slice(0, 160));
+    throw new HttpsError("unavailable", "xAI " + res.status + ": " + t.slice(0, 160));
   }
   const data = await res.json();
   const b64 = data.data && data.data[0] && data.data[0].b64_json;
-  if (!b64) throw new HttpsError("internal", "xAI returned no image data");
+  if (!b64) throw new HttpsError("unavailable", "xAI returned no image data");
   return { imageBase64: b64 };
 });
