@@ -18,6 +18,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 </head>
 <body>
 
@@ -460,6 +461,12 @@
       <p class="hint left">Coach voice matches the coach you pick. Injuries, schedule, equipment, preferences in the context box above — the coaches always consider it.</p>
       <button class="btn big" id="saveProfile">Save profile</button>
       <button class="btn ghost big" id="redoOnboard" style="margin-top:8px">🎯 Redo guided setup</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">🔔 Push notifications</h2>
+      <p class="sub left">Get notified about new messages and nudges even when GutCheck is closed or your phone is locked. On iPhone, this only works after you've added GutCheck to your Home Screen.</p>
+      <button class="btn ghost big" type="button" id="pushToggleBtn">Enable notifications</button>
     </div>
 
     <div class="card">

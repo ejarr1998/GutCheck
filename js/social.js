@@ -114,6 +114,7 @@ async function socialBoot() {
   await loadThreads();
   startMsgListener();
   socialCheckStreakCard();
+  initPush();
   if (!social.booted) {
     social.booted = true;
   }
@@ -936,7 +937,114 @@ function bindSocialUI() {
   });
 }
 
+/* ---------- push notifications (FCM) ----------
+   Foreground messages (app open, tab focused) are already covered by the
+   Firestore listeners above (startMsgListener + the drop-down banner) — this
+   section is specifically for when the app is backgrounded, the phone is
+   locked, or the tab/PWA is fully closed. sw.js has the matching
+   onBackgroundMessage handler that actually shows the OS notification.
+
+   iOS note: Safari only supports web push for a PWA that's been added to the
+   Home Screen and opened in standalone mode (iOS 16.4+). On a regular Safari
+   tab, firebase.messaging.isSupported() will resolve false and the button
+   below just won't do anything harmful — it'll say "Not supported here". */
+
+// Get this from Firebase Console → Project Settings → Cloud Messaging →
+// Web Push certificates (generate a key pair if none exists yet).
+const FCM_VAPID_KEY = "PASTE_YOUR_VAPID_KEY_HERE";
+
+let fcmMessaging = null;
+let pushSwReg = null;
+
+async function initPush() {
+  if (!("Notification" in window) || !("serviceWorker" in navigator) || !firebase.messaging) return;
+  try {
+    const supported = await firebase.messaging.isSupported();
+    if (!supported) return;
+    fcmMessaging = firebase.messaging();
+    pushSwReg = await navigator.serviceWorker.ready;
+    // foreground messages are redundant with the Firestore banner — swallow them
+    fcmMessaging.onMessage(() => {});
+    if (localStorage.getItem("gutcheckPushEnabled") === "1" && Notification.permission === "granted") {
+      await refreshPushToken(); // silently keep the token fresh across app opens
+    }
+  } catch (e) {
+    fcmMessaging = null;
+  }
+  renderPushToggle();
+}
+
+async function refreshPushToken() {
+  if (!fcmMessaging || !pushSwReg) return null;
+  const token = await fcmMessaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: pushSwReg });
+  if (token) {
+    await db.collection(ucol("settings")).doc("push").set(
+      { tokens: firebase.firestore.FieldValue.arrayUnion(token) }, { merge: true }
+    );
+  }
+  return token;
+}
+
+async function enablePushNotifications() {
+  if (!FCM_VAPID_KEY || FCM_VAPID_KEY.startsWith("PASTE_")) {
+    toast("Push isn't configured yet — needs a VAPID key from Ethan.", true);
+    return;
+  }
+  if (!fcmMessaging) { toast("Push notifications aren't supported on this browser", true); return; }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { toast("Notification permission denied"); renderPushToggle(); return; }
+    const token = await refreshPushToken();
+    if (!token) { toast("Couldn't get a push token", true); return; }
+    localStorage.setItem("gutcheckPushEnabled", "1");
+    toast("Push notifications on 🔔");
+  } catch (e) {
+    toast("Couldn't enable push: " + e.message, true);
+  }
+  renderPushToggle();
+}
+
+async function disablePushNotifications() {
+  try {
+    if (fcmMessaging && pushSwReg) {
+      const token = await fcmMessaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: pushSwReg }).catch(() => null);
+      if (token) {
+        await db.collection(ucol("settings")).doc("push").set(
+          { tokens: firebase.firestore.FieldValue.arrayRemove(token) }, { merge: true }
+        );
+      }
+    }
+  } catch (e) { /* best effort — the token will just go stale and get pruned server-side */ }
+  localStorage.removeItem("gutcheckPushEnabled");
+  toast("Push notifications off");
+  renderPushToggle();
+}
+
+function renderPushToggle() {
+  const btn = $("#pushToggleBtn");
+  if (!btn) return;
+  if (!("Notification" in window) || !fcmMessaging) {
+    btn.textContent = "Not supported on this browser";
+    btn.disabled = true;
+    btn.onclick = null;
+    return;
+  }
+  btn.disabled = false;
+  if (Notification.permission === "denied") {
+    btn.textContent = "Blocked — enable in your browser or phone settings";
+    btn.disabled = true;
+    btn.onclick = null;
+  } else if (localStorage.getItem("gutcheckPushEnabled") === "1" && Notification.permission === "granted") {
+    btn.textContent = "🔕 Turn off notifications";
+    btn.onclick = disablePushNotifications;
+  } else {
+    btn.textContent = "🔔 Enable notifications";
+    btn.onclick = enablePushNotifications;
+  }
+}
+
 window.socialBoot = socialBoot;
 window.socialSyncDirectory = socialSyncDirectory;
 window.socialOnMealLogged = socialOnMealLogged;
 window.socialOnWorkoutLogged = socialOnWorkoutLogged;
+window.renderPushToggle = renderPushToggle;

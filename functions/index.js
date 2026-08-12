@@ -7,6 +7,7 @@
 "use strict";
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 
@@ -313,6 +314,62 @@ exports.voiceCall = onCall({ secrets: [DEEPGRAM_API_KEY, ELEVENLABS_API_KEY] }, 
 });
 
 /* ---------- avatarCall: Grok image generation ---------- */
+/* ---------- push notifications: send on new thread message (covers nudges too,
+   since a nudge is just sendThreadMessage() with a canned string) ---------- */
+
+async function sendPushToUser(uid, { title, body, tag, url }) {
+  const ref = db.doc(`users/${uid}/settings/push`);
+  const snap = await ref.get();
+  const tokens = (snap.exists && Array.isArray(snap.data().tokens)) ? snap.data().tokens : [];
+  if (!tokens.length) return;
+  let res;
+  try {
+    res = await admin.messaging().sendEachForMulticast({
+      notification: { title, body },
+      data: { url: url || "./", tag: tag || "gutcheck" },
+      tokens,
+    });
+  } catch (e) {
+    console.error("Push send failed:", e);
+    return;
+  }
+  // prune tokens Firebase says are dead (uninstalled app, expired, etc.)
+  const dead = [];
+  res.responses.forEach((r, i) => {
+    const code = r.error && r.error.code;
+    if (!r.success && (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token")) {
+      dead.push(tokens[i]);
+    }
+  });
+  if (dead.length) {
+    await ref.set({ tokens: tokens.filter((t) => !dead.includes(t)) }, { merge: true });
+  }
+}
+
+exports.onThreadMessage = onDocumentCreated("threads/{pair}/messages/{messageId}", async (event) => {
+  const msg = event.data.data();
+  const pair = event.params.pair;
+  const members = pair.split("_");
+  const toUid = members.find((m) => m !== msg.from);
+  if (!toUid || !msg.from) return;
+
+  let senderName = "Someone";
+  try {
+    const threadSnap = await db.doc(`threads/${pair}`).get();
+    const names = (threadSnap.exists && threadSnap.data().names) || {};
+    senderName = names[msg.from] || senderName;
+  } catch (e) { /* fall back to generic name */ }
+
+  const text = String(msg.text || "");
+  const isNudge = text.startsWith("💪 Nudge");
+  await sendPushToUser(toUid, {
+    title: isNudge ? "💪 Nudge from " + senderName : senderName,
+    body: text.slice(0, 140),
+    tag: "thread-" + pair,
+    url: "./",
+  });
+});
+
 exports.avatarCall = onCall({ secrets: [XAI_API_KEY] }, async (request) => {
   await guard(request);
   const { prompt } = request.data || {};

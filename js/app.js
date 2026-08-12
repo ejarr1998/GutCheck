@@ -2363,6 +2363,7 @@ function renderSettings() {
   if (babyRow) babyRow.hidden = String(state.userEmail || "").toLowerCase() !== ADMIN_EMAIL;
   renderAvatarPreview();
   renderMemoryList();
+  if (window.renderPushToggle) window.renderPushToggle();
 }
 
 function renderMemoryList() {
