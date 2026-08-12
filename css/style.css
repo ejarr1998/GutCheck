@@ -776,6 +776,20 @@ body.kbd-open .tabbar { display: none; }
 }
 .bubble-text { font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble-time { font-size: 10px; opacity: .65; align-self: flex-end; }
+
+/* nudges get their own look — a centered highlight card, not a speech bubble,
+   so it reads as "an event that happened" rather than a typed message */
+.nudge-card {
+  align-self: center; max-width: 88%; margin: 8px 0;
+  display: flex; align-items: flex-start; gap: 10px;
+  background: linear-gradient(135deg, rgba(163,230,53,.16), rgba(163,230,53,.05));
+  border: 1px solid rgba(163,230,53,.4); border-radius: 14px; padding: 10px 14px;
+}
+.nudge-icon { font-size: 19px; line-height: 1.3; flex-shrink: 0; }
+.nudge-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nudge-label { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--lime); }
+.nudge-text { font-size: 13.5px; color: var(--text); line-height: 1.4; }
+.nudge-time { font-size: 10px; color: var(--muted); margin-top: 2px; }
 .convo-input { display: flex; gap: 8px; margin-top: 10px; }
 #socialConvo .convo-input {
   position: sticky; bottom: 64px;

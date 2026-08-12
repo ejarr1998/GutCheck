@@ -457,17 +457,37 @@ function renderPeople() {
 
 /* ---------- nudges ---------- */
 
+const NUDGE_PREFIX = "💪 Nudge from ";
+
 const NUDGE_LINES = [
-  "believes in you — go get it done today!",
-  "is cheering for you. One meal, one workout at a time.",
-  "says: you've got this. No excuses today!",
-  "is thinking of you — time to move!",
+  "get up, we're not doing the couch thing today",
+  "I logged mine. Your turn.",
+  "let's go 💪",
+  "don't make me nudge you again",
+  "rooting for you today",
+  "you don't have to crush it, just show up",
 ];
+
+// Returns the plain line (no "💪 Nudge from X: " wrapper) if this message is
+// a nudge, else null. The sender's display name is looked up separately via
+// personName() rather than parsed out of the text, so it stays correct even
+// if that person's name changes later.
+function parseNudge(text) {
+  if (!text || !text.startsWith(NUDGE_PREFIX)) return null;
+  const rest = text.slice(NUDGE_PREFIX.length);
+  const idx = rest.indexOf(": ");
+  return idx >= 0 ? rest.slice(idx + 2) : rest;
+}
+
+function previewText(text) {
+  const line = parseNudge(text);
+  return line ? "💪 " + line : (text || "").slice(0, 60);
+}
 
 async function sendNudge(uid) {
   const line = NUDGE_LINES[Math.floor(Math.random() * NUDGE_LINES.length)];
   try {
-    await sendThreadMessage(uid, "💪 Nudge from " + myName() + ": " + line);
+    await sendThreadMessage(uid, NUDGE_PREFIX + myName() + ": " + line);
     toast("Nudge sent to " + personName(uid) + " 💪");
   } catch (e) { toast("Couldn't send nudge: " + e.message, true); }
 }
@@ -500,7 +520,7 @@ function renderThreads() {
     row.appendChild(avatarEl(other, name, "md"));
     const txt = el("div", "thread-text");
     txt.appendChild(el("div", "person-name", name));
-    txt.appendChild(el("div", "thread-last", (t.lastText || "").slice(0, 60)));
+    txt.appendChild(el("div", "thread-last", previewText(t.lastText)));
     row.appendChild(txt);
     if (t.lastAt) {
       const right = el("div", "thread-right");
@@ -548,7 +568,7 @@ async function pollMessages() {
       if (state.tab === "social" && social.view === "convo" && social.convoUid === other) {
         loadConvo(); // sitting in this chat — just show it
       } else {
-        toast("💬 " + personName(other) + ": " + (t.lastText || "").slice(0, 60));
+        toast("💬 " + personName(other) + ": " + previewText(t.lastText));
       }
     }
   });
@@ -626,7 +646,7 @@ function showMsgBanner(uid, text) {
   bannerUid = uid;
   const name = personName(uid);
   $("#msgBannerName").textContent = name;
-  $("#msgBannerPreview").textContent = (text || "").slice(0, 80);
+  $("#msgBannerPreview").textContent = previewText(text).slice(0, 80);
   const av = $("#msgBannerAvatar");
   while (av.firstChild) av.removeChild(av.firstChild);
   const fresh = avatarEl(uid, name);
@@ -689,9 +709,22 @@ function renderConvo() {
       box.appendChild(el("div", "convo-day", new Date(m.createdAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })));
     }
     const mine = m.from === state.uid;
+    const time = new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const nudgeLine = parseNudge(m.text);
+    if (nudgeLine) {
+      const card = el("div", "nudge-card");
+      card.appendChild(el("div", "nudge-icon", "💪"));
+      const body = el("div", "nudge-body");
+      body.appendChild(el("div", "nudge-label", mine ? "You nudged " + personName(social.convoUid) : personName(m.from) + " nudged you"));
+      body.appendChild(el("div", "nudge-text", nudgeLine));
+      body.appendChild(el("div", "nudge-time", time));
+      card.appendChild(body);
+      box.appendChild(card);
+      return;
+    }
     const bubble = el("div", "bubble " + (mine ? "mine" : "theirs"));
     bubble.appendChild(el("span", "bubble-text", m.text));
-    bubble.appendChild(el("span", "bubble-time", new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })));
+    bubble.appendChild(el("span", "bubble-time", time));
     box.appendChild(bubble);
   });
   // the convo list is part of the normal page flow now (like the coach chats),
