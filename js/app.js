@@ -931,11 +931,11 @@ async function deleteViewerPhoto() {
 /* ---------- workout history heatmap (reads what finishWorkout() already saves) ---------- */
 const HEATMAP_WEEKS = 18;
 
-function heatLevel(setsTotal) {
-  if (!setsTotal) return 0;
-  if (setsTotal <= 3) return 1;
-  if (setsTotal <= 7) return 2;
-  if (setsTotal <= 12) return 3;
+function heatLevel(effort) {
+  if (!effort) return 0;
+  if (effort <= 3) return 1;
+  if (effort <= 7) return 2;
+  if (effort <= 12) return 3;
   return 4;
 }
 
@@ -945,15 +945,17 @@ function renderHeatmap() {
   if (!grid) return;
   while (grid.firstChild) grid.removeChild(grid.firstChild);
 
-  // sum sets per day
+  // sum sets + run distance per day (a run counts as activity even with 0 "sets")
   const byDay = {};
   state.workouts.forEach((w) => {
     const k = dayKey(w.startedAt);
-    byDay[k] = byDay[k] || { sets: 0, durationSec: 0, sessions: 0 };
+    byDay[k] = byDay[k] || { sets: 0, durationSec: 0, sessions: 0, distanceM: 0, runs: 0 };
     byDay[k].sets += w.sets || 0;
     byDay[k].durationSec += w.durationSec || 0;
     byDay[k].sessions += 1;
+    if (w.type === "run") { byDay[k].distanceM += w.distanceM || 0; byDay[k].runs += 1; }
   });
+  Object.values(byDay).forEach((v) => { v.effort = v.sets + (v.distanceM / 1000) * 3; });
 
   const totalDays = HEATMAP_WEEKS * 7;
   const today = new Date();
@@ -970,11 +972,17 @@ function renderHeatmap() {
     const k = dayKey(d.toISOString());
     const inFuture = d > today;
     const info = byDay[k];
-    const lvl = info ? heatLevel(info.sets) : 0;
+    const lvl = info ? heatLevel(info.effort) : 0;
     const cell = el("div", "heat-cell" + (lvl ? " lvl" + lvl : ""));
     if (inFuture) cell.style.visibility = "hidden";
     else {
-      cell.title = fmtDayShort(d.toISOString()) + (info ? " — " + info.sessions + " session" + (info.sessions > 1 ? "s" : "") + ", " + info.sets + " sets" : " — rest day");
+      let t = fmtDayShort(d.toISOString());
+      if (info) {
+        t += " — " + info.sessions + " session" + (info.sessions > 1 ? "s" : "");
+        if (info.sets) t += ", " + info.sets + " sets";
+        if (info.runs) t += ", " + fmtMiles(info.distanceM) + " mi run" + (info.runs > 1 ? "s" : "");
+      } else t += " — rest day";
+      cell.title = t;
       cell.addEventListener("click", () => showHeatmapDay(k, info));
     }
     grid.appendChild(cell);
@@ -982,6 +990,7 @@ function renderHeatmap() {
 
   const activeDays = Object.keys(byDay).length;
   const totalSets = Object.values(byDay).reduce((s, v) => s + v.sets, 0);
+  const totalMiles = Object.values(byDay).reduce((s, v) => s + v.distanceM, 0) / 1609.344;
   if (!activeDays) {
     summary.textContent = "No workouts logged yet — finish a session from the timer to see it here.";
   } else {
@@ -990,7 +999,13 @@ function renderHeatmap() {
     summary.appendChild(el("b", null, String(activeDays)));
     summary.appendChild(document.createTextNode(" active days, "));
     summary.appendChild(el("b", null, String(totalSets)));
-    summary.appendChild(document.createTextNode(" total sets."));
+    summary.appendChild(document.createTextNode(" sets"));
+    if (totalMiles > 0.01) {
+      summary.appendChild(document.createTextNode(", "));
+      summary.appendChild(el("b", null, totalMiles.toFixed(1)));
+      summary.appendChild(document.createTextNode(" mi run"));
+    }
+    summary.appendChild(document.createTextNode("."));
   }
 }
 
@@ -1013,7 +1028,10 @@ function showHeatmapDay(k, info) {
     return;
   }
   const mins = Math.round(info.durationSec / 60);
-  detail.appendChild(el("div", "hd-row", info.sessions + " session" + (info.sessions > 1 ? "s" : "") + " · " + info.sets + " sets · " + mins + " min total"));
+  let line = info.sessions + " session" + (info.sessions > 1 ? "s" : "") + " · " + mins + " min total";
+  if (info.sets) line += " · " + info.sets + " sets";
+  if (info.runs) line += " · " + fmtMiles(info.distanceM) + " mi run" + (info.runs > 1 ? "s" : "");
+  detail.appendChild(el("div", "hd-row", line));
 }
 
 /* ---------- food log history heatmap (past days: hit/miss calorie + protein targets) ---------- */
@@ -1962,7 +1980,7 @@ function buildTimerUI() {
   const wkSh = el("div", "picker-sheet timer-sheet");
   wkSh.id = "wkSheetBody";
   wkOv.appendChild(wkSh);
-  wkOv.addEventListener("click", (e) => { if (e.target === wkOv) wkOv.hidden = true; });
+  wkOv.addEventListener("click", (e) => { if (e.target === wkOv && !(rn.active && rn.locked)) wkOv.hidden = true; });
   document.body.appendChild(wkOv);
 
   const ckOv = el("div", "picker");
@@ -2002,21 +2020,32 @@ function sheetHead(body, title) {
 function renderWk() {
   const chip = $("#timerBtn-gym");
   if (chip) {
-    chip.classList.toggle("live", wk.active);
+    const anyActive = wk.active || rn.active;
+    chip.classList.toggle("live", anyActive);
     chip.classList.toggle("resting", wk.active && wk.restActive);
-    chip.textContent = wk.active ? "⏱ " + fmtClock(wkElapsed()) : "⏱";
+    if (rn.active) chip.textContent = "🏃 " + fmtClock(rnElapsed());
+    else chip.textContent = wk.active ? "⏱ " + fmtClock(wkElapsed()) : "⏱";
   }
   const body = $("#wkSheetBody");
   if (!body) return;
   while (body.firstChild) body.removeChild(body.firstChild);
+
+  if (rn.active) { renderRunActive(body); return; }
+
   sheetHead(body, "🏋️ Workout timer");
 
   if (!wk.active) {
     body.appendChild(el("p", "timer-hint", "Clock your session, count sets, time your rests — it logs to your history when you finish."));
-    const go = el("button", "btn big", "▶ Start workout");
+    const row = el("div", "wk-choice-row");
+    const go = el("button", "btn big", "🏋️ Strength workout");
     go.id = "wkStart";
     go.addEventListener("click", startWorkout);
-    body.appendChild(go);
+    row.appendChild(go);
+    const goRun = el("button", "btn big ghost", "🏃 Go for a run");
+    goRun.id = "rnStart";
+    goRun.addEventListener("click", startRun);
+    row.appendChild(goRun);
+    body.appendChild(row);
     return;
   }
 
@@ -2082,6 +2111,19 @@ function wkTick() {
       if (big) big.textContent = fmtClock(wkElapsed());
       if (lbl && lbl.textContent.startsWith("rest —")) lbl.textContent = "session time";
     }
+  }
+  if (rn.active) {
+    const chip = $("#timerBtn-gym");
+    if (chip && !wk.active) chip.textContent = "🏃 " + fmtClock(rnElapsed());
+    if (rn.running && rn.lastFixAt && Date.now() - rn.lastFixAt > 20000) { rn.gpsOk = false; updateGpsWarning(); }
+    const pace = fmtPace(currentPaceSecPerMi()) + "/mi";
+    const dist = fmtMiles(rn.distanceM) + " mi";
+    const time = fmtClock(rnElapsed());
+    ["", "L"].forEach((suf) => {
+      const t = $("#rnTime" + suf); if (t) t.textContent = time;
+      const p = $("#rnPace" + suf); if (p) p.textContent = pace;
+      const d = $("#rnDist" + suf); if (d) d.textContent = dist;
+    });
   }
   if (ck.running) {
     const rem = ck.endAt - Date.now();
@@ -2205,7 +2247,393 @@ async function finishWorkout() {
   if (sheet) sheet.hidden = true;
 }
 
-/* ---------- cooking / kitchen timer (Maya's page) ---------- */
+/* ---------- run tracking (GPS distance/pace, screen-on only) ---------- */
+/* Uses the browser Geolocation API while the app stays open and the screen
+   is on. iOS/Android both throttle or kill background tabs, so this can't
+   reliably track with the screen off/phone locked — that's a real PWA
+   limitation, not a bug. The Wake Lock API below just asks the screen to
+   stay awake while a run is active; it's best-effort and silently no-ops
+   on browsers that don't support it. */
+const RN_KEY = "gutcheck_run";
+const rn = {
+  active: false,
+  running: false,       // GPS watch currently live (false while paused)
+  startEpoch: 0,
+  accumMs: 0,
+  distanceM: 0,
+  lastPos: null,         // {lat,lng,t} last accepted GPS fix
+  route: [],             // [[lat,lng], ...] trail for drawing + storage
+  watchId: null,
+  wakeLock: null,
+  locked: false,         // pocket-lock: blocks all taps except slide-to-unlock
+  begunAt: null,
+  gpsOk: true,
+  lastFixAt: 0,
+  endArmed: false,
+};
+
+function rnElapsed() {
+  return rn.accumMs + (rn.running ? Date.now() - rn.startEpoch : 0);
+}
+function haversineM(a, b) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+function fmtMiles(m) { return (m / 1609.344).toFixed(2); }
+function fmtPace(secPerMile) {
+  if (!isFinite(secPerMile) || secPerMile <= 0) return "--:--";
+  const m = Math.floor(secPerMile / 60), s = Math.round(secPerMile % 60);
+  return m + ":" + String(s).padStart(2, "0");
+}
+function currentPaceSecPerMi() {
+  const mi = rn.distanceM / 1609.344;
+  if (mi < 0.02) return 0; // not enough distance yet for a meaningful pace
+  return (rnElapsed() / 1000) / mi;
+}
+
+function rnSave() {
+  try {
+    localStorage.setItem(RN_KEY, JSON.stringify({
+      active: rn.active, running: rn.running, startEpoch: rn.startEpoch,
+      accumMs: rn.accumMs, distanceM: rn.distanceM, lastPos: rn.lastPos,
+      route: rn.route, locked: rn.locked, begunAt: rn.begunAt,
+    }));
+  } catch (e) { /* storage full/blocked — run still tracks in-memory */ }
+}
+function rnRestore() {
+  try {
+    const raw = localStorage.getItem(RN_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (!s.active) return;
+    Object.assign(rn, s);
+    if (rn.running) { startGeoWatch(); requestWakeLock(); }
+  } catch (e) { /* ignore corrupt state */ }
+}
+
+async function requestWakeLock() {
+  try {
+    if ("wakeLock" in navigator) {
+      rn.wakeLock = await navigator.wakeLock.request("screen");
+      rn.wakeLock.addEventListener("release", () => { rn.wakeLock = null; });
+    }
+  } catch (e) { /* unsupported/denied — tracking still works, screen may just sleep */ }
+}
+function releaseWakeLock() {
+  if (rn.wakeLock) { try { rn.wakeLock.release(); } catch (e) { /* noop */ } rn.wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && rn.active && rn.running) requestWakeLock();
+});
+
+function onGeoPosition(pos) {
+  const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+  const t = pos.timestamp || Date.now();
+  rn.lastFixAt = Date.now();
+  rn.gpsOk = true;
+  if (accuracy != null && accuracy > 30) { updateGpsWarning(); return; } // too noisy — wait for a better fix
+  const point = { lat, lng, t };
+  if (rn.lastPos) {
+    const dt = (t - rn.lastPos.t) / 1000;
+    if (dt > 0) {
+      const dM = haversineM(rn.lastPos, point);
+      const impliedSpeed = dM / dt; // m/s — >12 m/s (~27mph) means a GPS jump, not a real stride
+      if (impliedSpeed <= 12) {
+        rn.lastPos = point;
+        if (dM >= 1) { // ignore sub-meter jitter so standing still doesn't rack up "distance"
+          rn.distanceM += dM;
+          rn.route.push([+lat.toFixed(6), +lng.toFixed(6)]);
+        }
+      }
+    }
+  } else {
+    rn.lastPos = point;
+    rn.route.push([+lat.toFixed(6), +lng.toFixed(6)]);
+  }
+  rnSave();
+  const cvs = $("#runTrail");
+  if (cvs) drawRunTrail(cvs);
+  updateGpsWarning();
+}
+function onGeoError() {
+  rn.gpsOk = false;
+  updateGpsWarning();
+}
+function updateGpsWarning() {
+  const warn = $("#rnGpsWarn");
+  if (warn) warn.hidden = rn.gpsOk;
+}
+function startGeoWatch() {
+  if (!navigator.geolocation || rn.watchId != null) return;
+  rn.watchId = navigator.geolocation.watchPosition(onGeoPosition, onGeoError, {
+    enableHighAccuracy: true, maximumAge: 2000, timeout: 15000,
+  });
+}
+function stopGeoWatch() {
+  if (rn.watchId != null) { navigator.geolocation.clearWatch(rn.watchId); rn.watchId = null; }
+}
+
+function startRun() {
+  if (!navigator.geolocation) { toast("This browser can't access GPS for run tracking", true); return; }
+  navigator.geolocation.getCurrentPosition(
+    () => {
+      Object.assign(rn, {
+        active: true, running: true, startEpoch: Date.now(), accumMs: 0,
+        distanceM: 0, lastPos: null, route: [], locked: false,
+        begunAt: new Date().toISOString(), gpsOk: true, endArmed: false,
+      });
+      rnSave();
+      startGeoWatch();
+      requestWakeLock();
+      renderWk();
+      toast("Run started — keep the app open and screen on for GPS to keep tracking.");
+    },
+    () => toast("Location access denied — allow it in your browser settings to track runs", true),
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function pauseResumeRun() {
+  if (rn.running) {
+    rn.accumMs += Date.now() - rn.startEpoch;
+    rn.running = false;
+    stopGeoWatch();
+    releaseWakeLock();
+  } else {
+    rn.startEpoch = Date.now();
+    rn.running = true;
+    rn.lastPos = null; // don't count the paused gap as distance
+    startGeoWatch();
+    requestWakeLock();
+  }
+  rnSave();
+  renderWk();
+}
+
+function toggleRunLock() {
+  rn.locked = !rn.locked;
+  rnSave();
+  renderWk();
+}
+
+function armEndRun(btn) {
+  if (!rn.endArmed) {
+    rn.endArmed = true;
+    const old = btn.textContent;
+    btn.textContent = "Sure?";
+    setTimeout(() => { rn.endArmed = false; if (btn.isConnected) btn.textContent = old; }, 3000);
+    return;
+  }
+  finishRun();
+}
+
+function downsampleRoute(route, target) {
+  const step = Math.ceil(route.length / target);
+  return route.filter((_, i) => i % step === 0);
+}
+
+async function finishRun() {
+  stopGeoWatch();
+  releaseWakeLock();
+  const durSec = Math.round(rnElapsed() / 1000);
+  const distanceM = Math.round(rn.distanceM);
+  const entry = {
+    type: "run",
+    startedAt: rn.begunAt || new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    durationSec: durSec,
+    distanceM: distanceM,
+    route: rn.route.length > 500 ? downsampleRoute(rn.route, 500) : rn.route,
+  };
+  try {
+    if (db) {
+      const ref = await db.collection(ucol("workouts")).add(entry);
+      state.workouts.push({ id: ref.id, ...entry });
+      renderHeatmap();
+    }
+    toast("Run logged — " + fmtMiles(distanceM) + " mi in " + Math.max(1, Math.round(durSec / 60)) + " min 🏃");
+  } catch (e) {
+    toast("Run done but save failed: " + e.message, true);
+  }
+  Object.assign(rn, {
+    active: false, running: false, locked: false, distanceM: 0,
+    accumMs: 0, route: [], lastPos: null, endArmed: false,
+  });
+  try { localStorage.removeItem(RN_KEY); } catch (e) { /* noop */ }
+  renderWk();
+  const sheet = $("#wkSheet");
+  if (sheet) sheet.hidden = true;
+}
+
+/* ---- run UI: live stats + trail canvas + pocket-lock screen ---- */
+function buildRunStat(value, label) {
+  const box = el("div", "run-stat");
+  box.appendChild(el("div", "run-stat-v", value));
+  box.appendChild(el("div", "run-stat-l", label));
+  return box;
+}
+
+function drawRunTrail(cvs) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  if (!w || !h) return;
+  cvs.width = w * dpr;
+  cvs.height = h * dpr;
+  const ctx = cvs.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (rn.route.length < 2) return;
+  const lats = rn.route.map((p) => p[0]), lngs = rn.route.map((p) => p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const pad = 14;
+  const latCorrection = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180) || 1;
+  const spanLat = Math.max(0.00005, maxLat - minLat);
+  const spanLng = Math.max(0.00005, (maxLng - minLng) * latCorrection);
+  const scale = Math.min((w - pad * 2) / spanLng, (h - pad * 2) / spanLat);
+  const toXY = (p) => {
+    const x = pad + ((p[1] - minLng) * latCorrection) * scale + Math.max(0, (w - pad * 2 - spanLng * scale) / 2);
+    const y = h - (pad + (p[0] - minLat) * scale + Math.max(0, (h - pad * 2 - spanLat * scale) / 2));
+    return [x, y];
+  };
+  ctx.strokeStyle = "#a3e635";
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  rn.route.forEach((p, i) => {
+    const [x, y] = toXY(p);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  const [sx, sy] = toXY(rn.route[0]);
+  const [ex, ey] = toXY(rn.route[rn.route.length - 1]);
+  ctx.fillStyle = "#9aa08c";
+  ctx.beginPath(); ctx.arc(sx, sy, 4, 0, 7); ctx.fill();
+  ctx.fillStyle = "#a3e635";
+  ctx.beginPath(); ctx.arc(ex, ey, 5, 0, 7); ctx.fill();
+}
+
+function renderRunActive(body) {
+  if (rn.locked) { renderRunLocked(body); return; }
+  sheetHead(body, "🏃 Run tracker");
+  const warn = el("div", "run-gps-warn", "⚠ Weak or lost GPS signal — keep the sky visible");
+  warn.id = "rnGpsWarn";
+  warn.hidden = rn.gpsOk;
+  body.appendChild(warn);
+
+  const dist = el("div", "wk-big", fmtMiles(rn.distanceM) + " mi");
+  dist.id = "rnDist";
+  body.appendChild(dist);
+  body.appendChild(el("div", "wk-label", "distance"));
+
+  const statRow = el("div", "run-stat-row");
+  const time = buildRunStat(fmtClock(rnElapsed()), "time");
+  time.querySelector(".run-stat-v").id = "rnTime";
+  const pace = buildRunStat(fmtPace(currentPaceSecPerMi()) + "/mi", "avg pace");
+  pace.querySelector(".run-stat-v").id = "rnPace";
+  statRow.appendChild(time);
+  statRow.appendChild(pace);
+  body.appendChild(statRow);
+
+  const cvs = document.createElement("canvas");
+  cvs.className = "run-trail";
+  cvs.id = "runTrail";
+  body.appendChild(cvs);
+  requestAnimationFrame(() => drawRunTrail(cvs));
+
+  const row = el("div", "wk-row");
+  const pause = el("button", "btn ghost", rn.running ? "⏸ Pause" : "▶ Resume");
+  pause.addEventListener("click", pauseResumeRun);
+  row.appendChild(pause);
+  const lock = el("button", "btn", "🔒 Lock");
+  lock.title = "Lock the screen so a sweaty pocket can't misclick";
+  lock.addEventListener("click", toggleRunLock);
+  row.appendChild(lock);
+  body.appendChild(row);
+
+  const fin = el("button", "btn ghost big", "Finish & log run");
+  fin.addEventListener("click", () => armEndRun(fin));
+  body.appendChild(fin);
+}
+
+function renderRunLocked(body) {
+  body.appendChild(el("div", "run-lock-badge", "🔒 Locked for your run"));
+  const dist = el("div", "wk-big", fmtMiles(rn.distanceM) + " mi");
+  dist.id = "rnDistL";
+  body.appendChild(dist);
+  body.appendChild(el("div", "wk-label", "distance"));
+
+  const statRow = el("div", "run-stat-row");
+  const time = buildRunStat(fmtClock(rnElapsed()), "time");
+  time.querySelector(".run-stat-v").id = "rnTimeL";
+  const pace = buildRunStat(fmtPace(currentPaceSecPerMi()) + "/mi", "avg pace");
+  pace.querySelector(".run-stat-v").id = "rnPaceL";
+  statRow.appendChild(time);
+  statRow.appendChild(pace);
+  body.appendChild(statRow);
+
+  body.appendChild(el("p", "timer-hint", "Nothing here responds to taps. Slide all the way to unlock before pausing or finishing."));
+  body.appendChild(buildSlideToUnlock());
+}
+
+function buildSlideToUnlock() {
+  const track = el("div", "run-slide-track");
+  const fill = el("div", "run-slide-fill");
+  track.appendChild(fill);
+  const label = el("div", "run-slide-label", "slide to unlock →");
+  track.appendChild(label);
+  const handle = el("button", "run-slide-handle", "🔓");
+  handle.type = "button";
+  track.appendChild(handle);
+
+  let dragging = false, startX = 0, maxX = 0;
+  function setX(x) {
+    handle.style.transform = "translateX(" + x + "px)";
+    fill.style.width = (40 + x) + "px";
+    label.style.opacity = String(Math.max(0, 1 - x / maxX));
+  }
+  function clearTransitions() {
+    handle.style.transition = ""; fill.style.transition = ""; label.style.transition = "";
+  }
+  function onDown(e) {
+    dragging = true;
+    startX = e.clientX;
+    maxX = Math.max(1, track.getBoundingClientRect().width - 48);
+    clearTransitions();
+    try { handle.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    setX(Math.min(maxX, Math.max(0, e.clientX - startX)));
+  }
+  function onUp(e) {
+    if (!dragging) return;
+    dragging = false;
+    const dx = Math.min(maxX, Math.max(0, e.clientX - startX));
+    if (dx >= maxX * 0.82) {
+      setX(maxX);
+      setTimeout(() => { rn.locked = false; rnSave(); renderWk(); }, 120);
+    } else {
+      handle.style.transition = "transform .2s ease";
+      fill.style.transition = "width .2s ease";
+      label.style.transition = "opacity .2s ease";
+      setX(0);
+      setTimeout(clearTransitions, 220);
+    }
+  }
+  handle.addEventListener("pointerdown", onDown);
+  handle.addEventListener("pointermove", onMove);
+  handle.addEventListener("pointerup", onUp);
+  handle.addEventListener("pointercancel", onUp);
+  return track;
+}
+
+
 const CK_KEY = "gutcheck_cook";
 const ck = { durSec: 600, running: false, endAt: 0, leftMs: 600000, flash: false };
 
@@ -2904,6 +3332,7 @@ async function boot() {
   buildCoachPanel("nutrition");
   buildCoachPanel("gym");
   wkRestore();
+  rnRestore();
   ckRestore();
   buildTimerUI();
   setupJumpBtns();
