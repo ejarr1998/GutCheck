@@ -781,8 +781,11 @@ body.kbd-open #socialConvo { height: calc(100dvh - 82px - var(--kbd, 0px)); }
 /* the convo is a bounded flex column — kill the page-level scroll range
    behind it so there's exactly one scrollbar (the message list) and the
    input bar can never drift */
-main:has(#socialConvo:not([hidden])) { padding-bottom: 0; }
-body:has(#socialConvo:not([hidden])) { overflow: hidden; }
+/* NOTE: must also require the Social panel itself to be visible — the convo
+   div keeps hidden=false inside the hidden panel after you switch tabs,
+   which would otherwise lock body scroll on EVERY screen */
+main:has(#panel-social:not([hidden]) #socialConvo:not([hidden])) { padding-bottom: 0; }
+body:has(#panel-social:not([hidden]) #socialConvo:not([hidden])) { overflow: hidden; }
 
 /* auto-hiding header: slides away scrolling down, back the instant you scroll up */
 .convo-head { transition: transform .2s ease, opacity .18s ease; }
