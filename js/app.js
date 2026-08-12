@@ -2417,7 +2417,7 @@ const PERSONA_GENDER = { maya: "female", marcus: "male", vanessa: "female", dre:
 const PERSONA_AVATARS = {}; // persona -> data URL, populated during onboarding
 let obSelectedGender = { nutrition: "female", gym: "female" };
 
-function renderPickerCard(persona) {
+function renderPickerCard(persona, failed) {
   const box = $("#cpcAvatar-" + persona);
   if (!box) return;
   while (box.firstChild) box.removeChild(box.firstChild);
@@ -2426,6 +2426,10 @@ function renderPickerCard(persona) {
     img.src = PERSONA_AVATARS[persona];
     img.alt = persona;
     box.appendChild(img);
+  } else if (failed) {
+    // Don't spin forever on a real error — fall back to a plain initial so
+    // the card is still selectable, and the person can retry from Settings.
+    box.appendChild(el("div", "avatar", persona[0].toUpperCase()));
   } else {
     box.appendChild(el("div", "cpc-spinner"));
   }
@@ -2455,6 +2459,7 @@ async function ensureAllAvatarsGenerating() {
   });
 
   const missing = Object.keys(PERSONA_COACH).filter((p) => !PERSONA_AVATARS[p]);
+  const failures = [];
   await Promise.allSettled(missing.map(async (persona) => {
     try {
       const res = await fns.httpsCallable("avatarCall")({ prompt: GROK_PROMPTS[persona] });
@@ -2467,10 +2472,13 @@ async function ensureAllAvatarsGenerating() {
       await db.collection(ucol("settings")).doc("avatars").set(patch, { merge: true });
       renderPickerCard(persona);
     } catch (e) {
-      console.warn("avatar generation failed for " + persona + ":", e.message);
-      // leave the spinner — worst case they still pick by name, and Settings can retry later
+      renderPickerCard(persona, true);
+      failures.push(persona + ": " + e.message);
     }
   }));
+  if (failures.length) {
+    toast("Some coach photos didn't generate — " + failures[0] + ". You can still pick and retry later in Settings.", true);
+  }
 }
 
 function openOnboarding() {
