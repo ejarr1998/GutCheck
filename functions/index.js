@@ -62,19 +62,20 @@ async function guard(request) {
 const MAYA_TOOLS = [{
   name: "log_meal",
   description:
-    "Log ONE food item or dish to the client's daily tracker (Today's fuel card on the dashboard). " +
+    "Log a meal to the client's daily tracker (Today's fuel card on the dashboard). " +
     "Use whenever the client asks you to log something they ate, or tells you what they ate expecting it to be tracked. " +
-    "If their message describes several distinct foods, call this tool once per item — never combine multiple foods into a single call. " +
+    "One call per eating occasion — if they describe several foods eaten together (e.g. eggs, toast, and cheese for breakfast), combine them into ONE call with ONE combined total, not one call per food. " +
+    "Only make separate calls when they describe genuinely separate occasions in the same message (like breakfast AND a separate afternoon snack). " +
     "Only for actual food or drink — never log non-food items, and never log a 0-calorie entry for a real meal; re-estimate or ask instead.",
   input_schema: {
     type: "object",
     properties: {
       description: {
         type: "string",
-        description: "A short 3-6 word name YOU write for this one item (e.g. \"Grilled chicken salad\"). Never the client's own raw wording or a long/rambling description — always your own clean summary.",
+        description: "A short, clean name listing just the food items themselves (e.g. \"Eggs, cheese, toast, butter\"), roughly 3-8 words. Strip out everything else — the client's own phrasing, restated calories/macros, brand names, hedging, photo references. Never paste their raw message.",
       },
-      calories: { type: "number", description: "Estimated calories for this one item (integer)" },
-      protein: { type: "number", description: "Estimated grams of protein for this one item (integer)" },
+      calories: { type: "number", description: "Estimated total calories for the whole meal (integer)" },
+      protein: { type: "number", description: "Estimated total grams of protein for the whole meal (integer)" },
     },
     required: ["description", "calories", "protein"],
   },
