@@ -195,7 +195,11 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
   if (messages.length > 40) {
     throw new HttpsError("invalid-argument", "Too many messages.");
   }
-  const history = messages.slice(-30);
+  // Not a functional window — the client already sends a deliberately-sized,
+  // cache-friendly window (see windowedHistory() in app.js). This is purely
+  // an abuse ceiling; slice(-30) here would just re-introduce the sliding-
+  // front problem the client-side logic exists to avoid.
+  const history = messages.slice(-40);
 
   // Cache breakpoint on the conversation tail: without this, the entire
   // history gets rebilled as fresh input tokens on every single turn, which

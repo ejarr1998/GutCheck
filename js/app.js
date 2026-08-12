@@ -1501,8 +1501,29 @@ function coachSystemParts(coachId) {
 // All Claude calls — including Maya's log_meal tool-use loop — run inside the
 // coachCall Cloud Function. The browser never sees an API key, and the function
 // writes meals under the caller's own users/{uid}/ namespace.
+// How much of the conversation gets sent to Claude each turn — deliberately
+// NOT a naive sliding window. slice(-30) keeps re-sending "the last 30" every
+// turn, but once a chat passes 30 messages, that means the OLDEST message
+// drops off the front on every single new message, shifting the whole array.
+// The prompt cache added in coachCall matches by exact prefix, so that shift
+// breaks the cache every single turn, permanently, for any conversation that
+// grows past the cap — silently cancelling out the caching we just added.
+// Instead, this only moves the window's start in big fixed jumps (CONTEXT_MAX
+// - CONTEXT_KEEP messages at a time), so within a run of ~16 turns the front
+// stays byte-identical and the cache stays warm; only the (rarer) jump itself
+// costs a fresh, uncached write.
+const CONTEXT_MAX = 32;
+const CONTEXT_KEEP = 16;
+function windowedHistory(full) {
+  const n = full.length;
+  if (n <= CONTEXT_MAX) return full;
+  const period = CONTEXT_MAX - CONTEXT_KEEP;
+  const start = Math.ceil((n - CONTEXT_MAX) / period) * period;
+  return full.slice(start);
+}
+
 async function callClaude(coachId) {
-  const history = state.chats[coachId].slice(-30).map((m) => {
+  const history = windowedHistory(state.chats[coachId]).map((m) => {
     if (!m.img) return { role: m.role, content: m.content };
     return {
       role: m.role,
