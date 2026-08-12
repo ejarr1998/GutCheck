@@ -51,6 +51,7 @@ function toast(msg, isErr) {
 const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
 
 const DEFAULT_PROFILE = {
+  name: "",
   height: "6'2\"",
   age: "28",
   startWeight: "190",
@@ -1375,7 +1376,8 @@ function coachSystemParts(coachId) {
   });
   const shared =
     "\n\nTODAY'S ACTUAL DATE: " + todayLabel + ". Trust this over any date assumption from your training — always use this as the true current date." +
-    "\n\nCLIENT PROFILE:\n- Height: " + p.height + ", Age: " + p.age +
+    "\n\nCLIENT PROFILE:\n- Name: " + (p.name || "not given — ask their name early if it hasn't come up") +
+    "\n- Height: " + p.height + ", Age: " + p.age +
     "\n- Start weight: " + p.startWeight + " lbs, Goal: " + p.goalWeight + " lbs" +
     "\n- Daily targets: " + p.calories + " calories, " + p.protein + "g protein" +
     "\n- Background: " + p.context +
@@ -1386,7 +1388,8 @@ function coachSystemParts(coachId) {
     "\n- Give specific numbers, portions, sets, and reps — never vague advice." +
     "\n- The client can attach photos (meals, physique, equipment) — comment specifically on what you see." +
     "\n- You are not a doctor; for medical red flags, say so briefly and move on." +
-    "\n- Remember the conversation history and build on it.";
+    "\n- Remember the conversation history and build on it." +
+    "\n- Use the client's first name naturally sometimes (greetings, check-ins) — not every message, just like a real coach would.";
   if (coachId === "nutrition") {
     const todayKey = dayKey(new Date().toISOString());
     const todayMeals = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
@@ -2353,7 +2356,7 @@ async function clearChat(coachId) {
 }
 
 /* ---------- settings ---------- */
-const PROFILE_FIELDS = ["height", "age", "startWeight", "goalWeight", "calories", "protein", "babyDue", "context"];
+const PROFILE_FIELDS = ["name", "height", "age", "startWeight", "goalWeight", "calories", "protein", "babyDue", "context"];
 
 function renderSettings() {
   PROFILE_FIELDS.forEach((f) => { $("#s_" + f).value = state.profile[f] || ""; });
@@ -2484,6 +2487,7 @@ async function ensureAllAvatarsGenerating() {
 function openOnboarding() {
   const p = state.profile;
   const existing = state.hasProfileDoc; // Ethan (migrated) pre-fills; brand-new users start clean
+  $("#ob_name").value = p.name || "";
   $("#ob_height").value = existing ? (p.height || "") : "";
   $("#ob_age").value = existing ? (p.age || "") : "";
   $("#ob_startWeight").value = existing ? (p.startWeight || "") : "";
@@ -2508,6 +2512,7 @@ function openOnboarding() {
 }
 
 function validateStep1Fields() {
+  const name = $("#ob_name").value.trim();
   const height = $("#ob_height").value.trim();
   const age = $("#ob_age").value.trim();
   const startWeight = $("#ob_startWeight").value.trim();
@@ -2516,8 +2521,8 @@ function validateStep1Fields() {
   const protein = $("#ob_protein").value.trim();
   const errBox = $("#onboardErr");
   if (errBox) errBox.hidden = true;
-  if (!height || !age || !startWeight || !goalWeight || !calories || !protein) {
-    const msg = "Fill in height, age, current + goal weight, and your targets (edit any field above and calories/protein auto-calculate).";
+  if (!name || !height || !age || !startWeight || !goalWeight || !calories || !protein) {
+    const msg = "Fill in your name, height, age, current + goal weight, and your targets (edit any field above and calories/protein auto-calculate).";
     if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
     toast(msg, true);
     return false;
@@ -2564,6 +2569,7 @@ async function saveOnboarding() {
 
   btn.disabled = true;
   try {
+    state.profile.name = $("#ob_name").value.trim();
     state.profile.height = height;
     state.profile.age = age;
     state.profile.startWeight = startWeight;
