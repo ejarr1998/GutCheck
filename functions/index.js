@@ -75,6 +75,38 @@ const MAYA_TOOLS = [{
   },
 }];
 
+// Available to both coaches — a durable fact that should survive the client
+// clearing their chat history (it lives in settings/coachMemory, not the chat).
+const REMEMBER_TOOL = {
+  name: "remember_fact",
+  description:
+    "Save one short, durable fact about the client that's worth carrying forward even if they clear this chat history — " +
+    "a real preference, an injury or health note, a routine change they've committed to. " +
+    "Use sparingly. Never for small talk, one-off requests, or anything already covered in the client profile you were given.",
+  input_schema: {
+    type: "object",
+    properties: {
+      fact: { type: "string", description: "One short, self-contained sentence stating the fact (max ~150 chars)." },
+    },
+    required: ["fact"],
+  },
+};
+const MAX_MEMORY_FACTS = 40; // per coach — oldest drop off if exceeded
+
+async function runRememberTool(uid, coachId, fact) {
+  const cleaned = String(fact || "").trim().slice(0, 200);
+  if (!cleaned) return "Rejected: empty fact.";
+  const ref = db.doc(`users/${uid}/settings/coachMemory`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : {};
+    const arr = Array.isArray(data[coachId]) ? data[coachId] : [];
+    const next = arr.concat([cleaned]).slice(-MAX_MEMORY_FACTS);
+    tx.set(ref, Object.assign({}, data, { [coachId]: next }), { merge: true });
+  });
+  return "Remembered.";
+}
+
 function dayKey(iso) {
   const d = new Date(iso);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -137,7 +169,7 @@ async function callAnthropic(apiKey, body) {
 /* ---------- coachCall: Claude chat + Maya's tool loop ---------- */
 exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => {
   const uid = await guard(request);
-  const { system, systemDynamic, messages, useTools, targets } = request.data || {};
+  const { system, systemDynamic, messages, useTools, targets, coachId } = request.data || {};
   if (typeof system !== "string" || !system || system.length > 8000) {
     throw new HttpsError("invalid-argument", "Missing or oversized system prompt.");
   }
@@ -156,7 +188,14 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
   }
   const history = messages.slice(-30);
 
+  const tools = [];
+  if (useTools) {
+    tools.push(REMEMBER_TOOL);
+    if (coachId === "nutrition") tools.push(...MAYA_TOOLS);
+  }
+
   let mealLogged = false;
+  let remembered = null;
   let lastText = "";
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const body = {
@@ -165,12 +204,12 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
       system: systemBlocks,
       messages: history,
     };
-    if (useTools) body.tools = MAYA_TOOLS;
+    if (tools.length) body.tools = tools;
     const data = await callAnthropic(ANTHROPIC_API_KEY.value(), body);
     const blocks = data.content || [];
     lastText = blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     if (data.stop_reason !== "tool_use") {
-      return { text: lastText || "", mealLogged };
+      return { text: lastText || "", mealLogged, remembered };
     }
     // execute every tool call in this turn, then feed the results back
     history.push({ role: "assistant", content: blocks });
@@ -179,8 +218,14 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
       if (b.type !== "tool_use") continue;
       let out;
       try {
-        out = await runMayaTool(uid, b.name, b.input || {}, targets);
-        if (String(out).startsWith("Logged:")) mealLogged = true;
+        if (b.name === "remember_fact") {
+          const fact = String((b.input || {}).fact || "").trim().slice(0, 200);
+          out = await runRememberTool(uid, coachId === "gym" ? "gym" : "nutrition", fact);
+          if (fact) remembered = fact;
+        } else {
+          out = await runMayaTool(uid, b.name, b.input || {}, targets);
+          if (String(out).startsWith("Logged:")) mealLogged = true;
+        }
       } catch (e) {
         out = "Tool failed: " + e.message;
       }
@@ -189,7 +234,7 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
     history.push({ role: "user", content: results });
   }
   // hit the round cap — the tool calls still happened, so tell the user what changed
-  return { text: lastText || "Done — check Today's fuel on the Home tab for what I logged.", mealLogged };
+  return { text: lastText || "Done — check Today's fuel on the Home tab for what I logged.", mealLogged, remembered };
 });
 
 /* ---------- voiceCall: Deepgram STT (nova-3) + ElevenLabs/Aura-2 TTS ---------- */

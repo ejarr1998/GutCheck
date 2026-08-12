@@ -158,6 +158,8 @@ const state = {
   heatmapSel: null, // dayKey of selected workout heatmap cell
   foodHeatmapSel: null, // dayKey of selected food log heatmap cell
   chats: { nutrition: [], gym: [] }, // {id, role, content, at}
+  coachMemory: { nutrition: [], gym: [] }, // durable facts learned in chat, survive a Reset
+  chatExpanded: { nutrition: false, gym: false }, // show full history vs just the recent tail
   sending: { nutrition: false, gym: false },
   attach: { nutrition: null, gym: null }, // pending photo to send (data URL)
   pickerCoach: null,
@@ -221,6 +223,19 @@ async function loadWorkouts() {
   state.workouts = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => new Date(a.loggedAt || a.startedAt || 0) - new Date(b.loggedAt || b.startedAt || 0));
+}
+
+async function loadCoachMemory() {
+  try {
+    const doc = await db.collection(ucol("settings")).doc("coachMemory").get();
+    if (doc.exists) {
+      const d = doc.data();
+      state.coachMemory = {
+        nutrition: Array.isArray(d.nutrition) ? d.nutrition : [],
+        gym: Array.isArray(d.gym) ? d.gym : [],
+      };
+    }
+  } catch (e) { /* offline or brand-new account — empty memory is fine */ }
 }
 
 async function loadChat(coach) {
@@ -1318,7 +1333,20 @@ function renderChat(coachId) {
     return;
   }
 
-  msgs.forEach((m) => {
+  const CHAT_VISIBLE = 20;
+  const expanded = state.chatExpanded[coachId];
+  const hiddenCount = msgs.length - CHAT_VISIBLE;
+  const showEarlierLink = !expanded && hiddenCount > 0;
+  const toRender = showEarlierLink ? msgs.slice(-CHAT_VISIBLE) : msgs;
+
+  if (showEarlierLink) {
+    const btn = el("button", "link-btn center-btn show-earlier", "Show " + hiddenCount + " earlier message" + (hiddenCount > 1 ? "s" : ""));
+    btn.type = "button";
+    btn.addEventListener("click", () => { state.chatExpanded[coachId] = true; renderChat(coachId); });
+    wrap.appendChild(btn);
+  }
+
+  toRender.forEach((m) => {
     const div = el("div", "msg " + (m.role === "user" ? "user" : "bot"));
     if (m.img) {
       const im = document.createElement("img");
@@ -1383,6 +1411,13 @@ function showAvatarFull(coachId) {
 // Split into { stable, dynamic } so the server can mark the stable block with
 // cache_control — the dynamic "logged today" line changes on every log_meal
 // call and would otherwise invalidate the cache on exactly the round we want it.
+function memoryBlockFor(coachId) {
+  const facts = (state.coachMemory && state.coachMemory[coachId]) || [];
+  if (!facts.length) return "";
+  return "\n\nLONG-TERM MEMORY (persists even if the client clears this chat) — things you've learned about them over time:\n" +
+    facts.map((f) => "- " + f).join("\n");
+}
+
 function coachSystemParts(coachId) {
   const p = state.profile;
   const todayLabel = new Date().toLocaleDateString("en-US", {
@@ -1403,16 +1438,18 @@ function coachSystemParts(coachId) {
     "\n- The client can attach photos (meals, physique, equipment) — comment specifically on what you see." +
     "\n- You are not a doctor; for medical red flags, say so briefly and move on." +
     "\n- Remember the conversation history and build on it." +
-    "\n- Use the client's first name naturally sometimes (greetings, check-ins) — not every message, just like a real coach would.";
+    "\n- Use the client's first name naturally sometimes (greetings, check-ins) — not every message, just like a real coach would." +
+    "\n- LONG-TERM MEMORY: you have a remember_fact tool. Call it sparingly, only for something durable worth carrying forward even if this chat gets cleared — " +
+    "a real preference, an injury or health note, a routine change they've committed to. Never for small talk or one-off requests, and never for anything already in the client profile above.";
   if (coachId === "nutrition") {
     const todayKey = dayKey(new Date().toISOString());
     const todayMeals = state.meals.filter((m) => dayKey(m.loggedAt) === todayKey);
     const calSoFar = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
     const proteinSoFar = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
-    const dynamic = todayMeals.length
+    const dynamic = (todayMeals.length
       ? "LOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
         todayMeals.map((m) => m.name || m.description || m.desc || "a logged meal").join(", ") + ". Use this to say what's left for the day, not just the flat daily target."
-      : "Nothing logged yet today — no need to mention this unless it's relevant.";
+      : "Nothing logged yet today — no need to mention this unless it's relevant.") + memoryBlockFor("nutrition");
     const me = COACHES.nutrition.short;
     const other = COACHES.gym.short;
     return {
@@ -1449,7 +1486,7 @@ function coachSystemParts(coachId) {
       "You work alongside " + otherG + ", the nutritionist, who lives in the Nutritionist tab. " +
       "If the client asks about food, calories, meal ideas, or diets, give at most ONE short sentence, then redirect: \"That's " + otherG + "'s department — ask " + otherG + " in the Nutritionist tab.\" " +
       "Never write out meal plans or calorie breakdowns.",
-    dynamic: "",
+    dynamic: memoryBlockFor("gym"),
   };
 }
 
@@ -1473,7 +1510,8 @@ async function callClaude(coachId) {
     system: parts.stable,
     systemDynamic: parts.dynamic,
     messages: history,
-    useTools: coachId === "nutrition",
+    useTools: true,
+    coachId,
     targets: { calories: state.profile.calories, protein: state.profile.protein },
   });
   const data = res.data || {};
@@ -1481,6 +1519,10 @@ async function callClaude(coachId) {
     await loadMeals();
     renderMealTotals();
     renderFoodHeatmap();
+  }
+  if (data.remembered) {
+    state.coachMemory[coachId] = state.coachMemory[coachId] || [];
+    state.coachMemory[coachId].push(data.remembered);
   }
   if (!data.text) throw new Error("Coach returned an empty response");
   return data.text;
@@ -2298,6 +2340,7 @@ async function clearChat(coachId) {
     snap.docs.forEach((d) => batch.delete(d.ref));
     await batch.commit();
     state.chats[coachId] = [];
+    state.chatExpanded[coachId] = false;
     renderChat(coachId);
     toast("Conversation cleared");
   } catch (e) { toast("Clear failed: " + e.message, true); }
@@ -2316,6 +2359,41 @@ function renderSettings() {
   const babyRow = $("#babyDueRow");
   if (babyRow) babyRow.hidden = String(state.userEmail || "").toLowerCase() !== ADMIN_EMAIL;
   renderAvatarPreview();
+  renderMemoryList();
+}
+
+function renderMemoryList() {
+  const box = $("#memoryList");
+  if (!box) return;
+  while (box.firstChild) box.removeChild(box.firstChild);
+  const groups = [["nutrition", COACHES.nutrition.short], ["gym", COACHES.gym.short]];
+  let any = false;
+  groups.forEach(([coachId, label]) => {
+    const facts = state.coachMemory[coachId] || [];
+    if (!facts.length) return;
+    any = true;
+    box.appendChild(el("div", "mem-group-label", label));
+    facts.forEach((fact, i) => {
+      const row = el("div", "mem-row");
+      row.appendChild(el("div", "mem-text", fact));
+      const del = el("button", "icon-btn", "✕");
+      del.title = "Forget this";
+      del.addEventListener("click", () => deleteMemoryFact(coachId, i));
+      row.appendChild(del);
+      box.appendChild(row);
+    });
+  });
+  if (!any) box.appendChild(el("p", "hint left", "Nothing remembered yet — your coaches will pick things up as you chat."));
+}
+
+async function deleteMemoryFact(coachId, index) {
+  const facts = (state.coachMemory[coachId] || []).slice();
+  facts.splice(index, 1);
+  state.coachMemory[coachId] = facts;
+  renderMemoryList();
+  try {
+    await db.collection(ucol("settings")).doc("coachMemory").set(state.coachMemory);
+  } catch (e) { toast("Couldn't save that change: " + e.message, true); }
 }
 
 async function onSaveProfile() {
@@ -2884,6 +2962,7 @@ async function startApp() {
       loadMeals(),
       loadWorkouts(),
       loadWorkoutTags(),
+      loadCoachMemory(),
       loadChat("nutrition"),
       loadChat("gym"),
       loadAvatars(),
