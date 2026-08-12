@@ -62,15 +62,19 @@ async function guard(request) {
 const MAYA_TOOLS = [{
   name: "log_meal",
   description:
-    "Log a meal to the client's daily tracker (Today's fuel card on the dashboard). " +
+    "Log ONE food item or dish to the client's daily tracker (Today's fuel card on the dashboard). " +
     "Use whenever the client asks you to log something they ate, or tells you what they ate expecting it to be tracked. " +
+    "If their message describes several distinct foods, call this tool once per item — never combine multiple foods into a single call. " +
     "Only for actual food or drink — never log non-food items, and never log a 0-calorie entry for a real meal; re-estimate or ask instead.",
   input_schema: {
     type: "object",
     properties: {
-      description: { type: "string", description: "Short 3-6 word name for the meal" },
-      calories: { type: "number", description: "Estimated total calories (integer)" },
-      protein: { type: "number", description: "Estimated grams of protein (integer)" },
+      description: {
+        type: "string",
+        description: "A short 3-6 word name YOU write for this one item (e.g. \"Grilled chicken salad\"). Never the client's own raw wording or a long/rambling description — always your own clean summary.",
+      },
+      calories: { type: "number", description: "Estimated calories for this one item (integer)" },
+      protein: { type: "number", description: "Estimated grams of protein for this one item (integer)" },
     },
     required: ["description", "calories", "protein"],
   },

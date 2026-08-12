@@ -1490,6 +1490,8 @@ function coachSystemParts(coachId) {
         "Never write out workout routines, sets, or reps." +
         "\n- MEAL LOGGING: you have a log_meal tool that writes straight to the client's dashboard tracker. " +
         "When the client tells you what they ate expecting it to be tracked (or asks you to log something), call log_meal with your best realistic estimate, then confirm in one short sentence with the numbers and what's left today. " +
+        "ALWAYS write your own short, clean 3-6 word name for the description field (e.g. \"Grilled chicken salad\") — never paste the client's own wording, a voice-dictated transcript, or a long run-on description into it, no matter how detailed or rambling their message was. " +
+        "If the client describes several distinct foods in one message — a full meal with multiple components, or a list of separate items — call log_meal ONCE PER DISTINCT ITEM, each with its own short name and its own calories/protein, exactly like logging each thing separately by hand. Never bundle several foods into one entry with a giant combined name. " +
         "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
         "Never claim you logged something without calling the tool. " +
         "\n- VISIBILITY: you CAN see the client's food log. Every message you receive includes a LOGGED SO FAR TODAY section listing everything eaten today with running totals — " +
