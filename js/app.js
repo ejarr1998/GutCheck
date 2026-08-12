@@ -168,7 +168,6 @@ const state = {
     recorder: null,
     chunks: [],
     coachId: null,
-    autoSpeakNext: { nutrition: false, gym: false },
     audio: null,
     speakBtn: null,
   },
@@ -1544,7 +1543,6 @@ async function toggleRecording(coachId) {
       if (text) {
         const ta = $("#chatInput-" + coachId);
         ta.value = (ta.value ? ta.value.trim() + " " : "") + text;
-        state.voice.autoSpeakNext[coachId] = true; // voice in → voice out
         ta.focus();
       } else {
         toast("Didn't catch that — try again", true);
@@ -2362,10 +2360,6 @@ async function sendCoachMessage(coachId, text) {
   state.sending[coachId] = false;
   renderChat(coachId);
   scrollChatBottom(coachId, true);
-  if (state.voice.autoSpeakNext[coachId]) {
-    state.voice.autoSpeakNext[coachId] = false;
-    speakText(coachId, reply, null);
-  }
 }
 
 async function clearChat(coachId) {

@@ -19,7 +19,7 @@ const ELEVENLABS_API_KEY = defineSecret("ELEVENLABS_API_KEY");
 const XAI_API_KEY = defineSecret("XAI_API_KEY");
 
 const DAILY_CALL_CAP = 150; // per user, across all functions, UTC day
-const CLAUDE_MODEL = "claude-sonnet-4-5";
+const CLAUDE_MODEL = "claude-sonnet-5";
 const MAX_TOOL_ROUNDS = 4;
 
 const ELEVEN_VOICES = {
