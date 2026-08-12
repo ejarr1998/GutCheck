@@ -217,7 +217,10 @@ async function loadMeals() {
 }
 
 async function loadWorkouts() {
-  state.workouts = await fsGet("workouts", "startedAt", "asc");
+  const snap = await db.collection(ucol("workouts")).get();
+  state.workouts = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => new Date(a.loggedAt || a.startedAt || 0) - new Date(b.loggedAt || b.startedAt || 0));
 }
 
 async function loadChat(coach) {
@@ -945,12 +948,13 @@ function renderHeatmap() {
   if (!grid) return;
   while (grid.firstChild) grid.removeChild(grid.firstChild);
 
-  // group logged tags per day (legacy entries without a tags array still count as one generic entry)
+  // group logged entries per day (legacy entries without a tags array still count as one generic entry)
   const byDay = {};
   state.workouts.forEach((w) => {
     const k = dayKey(w.loggedAt || w.startedAt);
-    byDay[k] = byDay[k] || { tags: [] };
+    byDay[k] = byDay[k] || { tags: [], entries: [] };
     const tags = Array.isArray(w.tags) && w.tags.length ? w.tags : ["Workout"];
+    byDay[k].entries.push({ id: w.id, tags });
     tags.forEach((t) => byDay[k].tags.push(t));
   });
 
@@ -1003,7 +1007,15 @@ function showHeatmapDay(k, info) {
   while (detail.firstChild) detail.removeChild(detail.firstChild);
   detail.hidden = false;
   const dateLabel = new Date(k + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-  detail.appendChild(el("div", "hd-date", dateLabel));
+  const head = el("div", "hd-head");
+  head.appendChild(el("div", "hd-date", dateLabel));
+  if (info) {
+    const editBtn = el("button", "link-btn hd-edit", "✏️ Edit");
+    editBtn.type = "button";
+    editBtn.addEventListener("click", () => editWorkoutDay(k, info));
+    head.appendChild(editBtn);
+  }
+  detail.appendChild(head);
   if (!info) {
     detail.appendChild(el("div", "hd-row", "Rest day — no workout logged."));
     return;
@@ -1893,7 +1905,12 @@ function wireViewport() {
 // apply, add your own if one's missing, hit Log. That's the whole feature.
 const DEFAULT_WORKOUT_TAGS = ["Run", "Walk", "Arms", "Legs", "Back", "Chest", "Shoulders", "Core"];
 let WORKOUT_TAGS = DEFAULT_WORKOUT_TAGS.slice();
-const wkLog = { selected: [] };
+const wkLog = { selected: [], editKey: null, editEntryIds: [] };
+
+function middayIsoForDayKey(k) {
+  const [y, m, d] = k.split("-").map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+}
 
 function fmtClock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -1957,6 +1974,8 @@ function buildTimerUI() {
 function openTimerSheet(coachId) {
   if (coachId === "gym") {
     wkLog.selected = [];
+    wkLog.editKey = null;
+    wkLog.editEntryIds = [];
     renderWk();
     $("#wkSheet").hidden = false;
   } else {
@@ -1979,11 +1998,21 @@ function renderWk() {
   const body = $("#wkSheetBody");
   if (!body) return;
   while (body.firstChild) body.removeChild(body.firstChild);
-  sheetHead(body, "📋 Log workout");
-  body.appendChild(el("p", "timer-hint", "Tap everything you did today, then log it. Don't see it? Add your own — it'll show up here from now on."));
+  const editing = !!wkLog.editKey;
+  const title = editing
+    ? "✏️ Edit — " + new Date(wkLog.editKey + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : "📋 Log workout";
+  sheetHead(body, title);
+  body.appendChild(el("p", "timer-hint", editing
+    ? "Tap to add or remove what you logged that day. Untap everything to clear it entirely."
+    : "Tap everything you did today, then log it. Don't see it? Add your own — it'll show up here from now on."));
+
+  // when editing, show any already-logged tags even if they aren't in the master list
+  // (e.g. an old "Workout" placeholder from before tagging existed)
+  const displayTags = editing ? Array.from(new Set([...WORKOUT_TAGS, ...wkLog.selected])) : WORKOUT_TAGS;
 
   const grid = el("div", "wk-tag-grid");
-  WORKOUT_TAGS.forEach((tag) => {
+  displayTags.forEach((tag) => {
     const chip = el("button", "wk-tag" + (wkLog.selected.includes(tag) ? " on" : ""), tag);
     chip.type = "button";
     chip.addEventListener("click", () => {
@@ -1999,10 +2028,12 @@ function renderWk() {
   grid.appendChild(addBtn);
   body.appendChild(grid);
 
-  const log = el("button", "btn big", wkLog.selected.length ? "Log " + wkLog.selected.join(", ") : "Log workout");
-  log.disabled = !wkLog.selected.length;
-  log.addEventListener("click", logWorkout);
-  body.appendChild(log);
+  const btn = el("button", "btn big", editing
+    ? (wkLog.selected.length ? "Save: " + wkLog.selected.join(", ") : "Save (clear this day)")
+    : (wkLog.selected.length ? "Log " + wkLog.selected.join(", ") : "Log workout"));
+  btn.disabled = !editing && !wkLog.selected.length;
+  btn.addEventListener("click", editing ? saveWorkoutEdit : logWorkout);
+  body.appendChild(btn);
 }
 
 function promptWorkoutTag() {
@@ -2056,6 +2087,42 @@ async function logWorkout() {
   renderWk();
   const sheet = $("#wkSheet");
   if (sheet) sheet.hidden = true;
+}
+
+function editWorkoutDay(k, info) {
+  wkLog.selected = Array.from(new Set(info.tags));
+  wkLog.editKey = k;
+  wkLog.editEntryIds = info.entries.map((e) => e.id).filter(Boolean);
+  renderWk();
+  $("#wkSheet").hidden = false;
+}
+
+async function saveWorkoutEdit() {
+  const k = wkLog.editKey;
+  const ids = wkLog.editEntryIds;
+  const newTags = wkLog.selected.slice();
+  try {
+    await Promise.all(ids.map((id) => db.collection(ucol("workouts")).doc(id).delete()));
+    state.workouts = state.workouts.filter((w) => !ids.includes(w.id));
+    if (newTags.length) {
+      const entry = { loggedAt: middayIsoForDayKey(k), tags: newTags };
+      const ref = await db.collection(ucol("workouts")).add(entry);
+      state.workouts.push({ id: ref.id, ...entry });
+    }
+    renderHeatmap();
+    toast(newTags.length ? "Updated: " + newTags.join(", ") : "Cleared that day's workout");
+  } catch (e) {
+    toast("Couldn't save changes: " + e.message, true);
+    return;
+  }
+  wkLog.selected = [];
+  wkLog.editKey = null;
+  wkLog.editEntryIds = [];
+  const sheet = $("#wkSheet");
+  if (sheet) sheet.hidden = true;
+  // the day detail panel is now stale — close it, they can tap the day again to see the update
+  const detail = $("#heatmapDetail");
+  if (detail) { detail.hidden = true; state.heatmapSel = null; }
 }
 
 function wkTick() {
