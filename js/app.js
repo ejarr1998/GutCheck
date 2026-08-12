@@ -1818,6 +1818,9 @@ function renderAvatarPreview() {
     }
     box.appendChild(el("div", null, label));
     wrap.appendChild(box);
+    // keep the per-coach regen buttons labeled with the active persona's name
+    const rb = $("#regenAvatar-" + c);
+    if (rb && !rb.disabled) rb.textContent = "✨ New photo for " + label;
   });
 }
 
@@ -1861,35 +1864,50 @@ function buildAvatarPrompt(persona) {
   return GROK_PROMPTS[persona] + ", " + randomAvatarVariant();
 }
 
-async function regenerateAvatars() {
-  const btn = $("#regenAvatars");
-  btn.disabled = true;
-  try {
-    const jobs = [
-      [coachGender("nutrition") === "male" ? "marcus" : "maya", "nutrition"],
-      [coachGender("gym") === "male" ? "dre" : "vanessa", "gym"],
-    ];
-    for (let i = 0; i < jobs.length; i++) {
-      const who = jobs[i][0], coachId = jobs[i][1];
-      btn.textContent = "⏳ Generating " + COACHES[coachId].short + "… (~30s)";
-      const res = await fns.httpsCallable("avatarCall")({ prompt: buildAvatarPrompt(who) });
+/* xAI's image endpoint rate-limits concurrent calls on a single API key —
+   firing 4 generations at once during onboarding reliably got one of them
+   rejected. Everything now goes through this helper: one call at a time,
+   with one automatic retry after a short backoff. */
+async function generateAvatarImage(prompt) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fns.httpsCallable("avatarCall")({ prompt });
       const b64 = res.data && res.data.imageBase64;
       if (!b64) throw new Error("Avatar server returned no image data");
-      const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
-      const patch = {};
-      patch[who] = small;
-      await db.collection(ucol("settings")).doc("avatars").set(patch, { merge: true });
-      AVATARS[coachId] = small;
-      localStorage.setItem(avatarCacheKey(coachId), small);
-      applyAvatars();
-      renderAvatarPreview();
+      return b64;
+    } catch (e) {
+      lastErr = e;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 2500));
     }
-    toast("New avatars saved — synced to all your devices");
+  }
+  throw lastErr;
+}
+
+async function regenerateAvatar(coachId) {
+  const btn = $("#regenAvatar-" + coachId);
+  if (!btn || btn.disabled) return;
+  const who = coachId === "nutrition"
+    ? (coachGender("nutrition") === "male" ? "marcus" : "maya")
+    : (coachGender("gym") === "male" ? "dre" : "vanessa");
+  btn.disabled = true;
+  try {
+    btn.textContent = "⏳ Generating " + COACHES[coachId].short + "… (~30s)";
+    const b64 = await generateAvatarImage(buildAvatarPrompt(who));
+    const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
+    const patch = {};
+    patch[who] = small;
+    await db.collection(ucol("settings")).doc("avatars").set(patch, { merge: true });
+    AVATARS[coachId] = small;
+    localStorage.setItem(avatarCacheKey(coachId), small);
+    applyAvatars();
+    renderAvatarPreview();
+    toast("New photo saved for " + COACHES[coachId].short + " — synced to all your devices");
   } catch (e) {
     toast("Avatar generation failed: " + e.message, true);
   } finally {
     btn.disabled = false;
-    btn.textContent = "✨ Generate new coach avatars";
+    btn.textContent = "✨ New photo for " + COACHES[coachId].short;
   }
 }
 
@@ -2601,11 +2619,11 @@ async function ensureAllAvatarsGenerating() {
 
   const missing = Object.keys(PERSONA_COACH).filter((p) => !PERSONA_AVATARS[p]);
   const failures = [];
-  await Promise.allSettled(missing.map(async (persona) => {
+  // Sequential, not parallel — concurrent image calls on one key get
+  // rate-limited by xAI (this was the "3 of 4 photos generated" failure).
+  for (const persona of missing) {
     try {
-      const res = await fns.httpsCallable("avatarCall")({ prompt: buildAvatarPrompt(persona) });
-      const b64 = res.data && res.data.imageBase64;
-      if (!b64) throw new Error("no image data");
+      const b64 = await generateAvatarImage(buildAvatarPrompt(persona));
       const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
       PERSONA_AVATARS[persona] = small;
       const patch = {};
@@ -2616,7 +2634,7 @@ async function ensureAllAvatarsGenerating() {
       renderPickerCard(persona, true);
       failures.push(persona + ": " + e.message);
     }
-  }));
+  }
   if (failures.length) {
     toast("Some coach photos didn't generate — " + failures[0] + ". You can still pick and retry later in Settings.", true);
   }
@@ -3077,7 +3095,8 @@ function wireEvents() {
     $("#" + id).addEventListener("input", obAutoTargets);
     $("#" + id).addEventListener("change", obAutoTargets);
   });
-  $("#regenAvatars").addEventListener("click", regenerateAvatars);
+  $("#regenAvatar-nutrition").addEventListener("click", () => regenerateAvatar("nutrition"));
+  $("#regenAvatar-gym").addEventListener("click", () => regenerateAvatar("gym"));
   $("#settingsBtn").addEventListener("click", () => go("settings"));
   $("#fsToggle").addEventListener("click", toggleFullscreen);
   document.addEventListener("fullscreenchange", syncFsBtn);
