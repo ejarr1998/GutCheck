@@ -513,6 +513,17 @@
   <button data-go="social" class="tab-btn"><span class="tab-ico">👥</span>Social<span class="tab-dot" id="socialTabDot" hidden></span></button>
 </nav>
 
+<!-- incoming message banner (slides down from the top) -->
+<div class="msg-banner" id="msgBanner" hidden>
+  <div class="avatar" id="msgBannerAvatar"></div>
+  <div class="msg-banner-text">
+    <div class="msg-banner-name" id="msgBannerName"></div>
+    <div class="msg-banner-preview" id="msgBannerPreview"></div>
+  </div>
+  <button class="icon-btn" type="button" id="msgBannerClose" title="Dismiss">✕</button>
+</div>
+</nav>
+
 <div class="toast" id="toast" hidden></div>
 
   <!-- global overlays (must live outside tab panels so they show on every tab) -->

@@ -112,7 +112,7 @@ async function socialBoot() {
   renderComposerAvatars();
   await loadFeed();
   await loadThreads();
-  startMsgPolling();
+  startMsgListener();
   socialCheckStreakCard();
   if (!social.booted) {
     social.booted = true;
@@ -518,7 +518,10 @@ function updateMsgBadge() {
     badge.textContent = unread;
   }
   const tabDot = $("#socialTabDot");
-  if (tabDot) tabDot.hidden = unread === 0;
+  if (tabDot) {
+    tabDot.hidden = unread === 0;
+    tabDot.textContent = unread;
+  }
 }
 
 /* ---------- new-message notifications (45s polling) ---------- */
@@ -550,6 +553,93 @@ function startMsgPolling() {
   setInterval(pollMessages, 45000);
 }
 
+/* ---------- real-time messages (Firestore snapshots; no refresh needed) ---------- */
+
+let threadsUnsub = null;
+let convoUnsub = null;
+
+function startMsgListener() {
+  // baseline: threads that exist at boot don't trigger banners
+  social.threads.forEach((t) => { msgNotified[t.id] = t.lastAt || ""; });
+  try {
+    threadsUnsub = db.collection("threads")
+      .where("members", "array-contains", state.uid)
+      .onSnapshot(onThreadsSnapshot, () => {});
+  } catch (e) {
+    startMsgPolling(); // older SDK / test stub without onSnapshot
+  }
+}
+
+function onThreadsSnapshot(snap) {
+  social.threads = [];
+  snap.forEach((d) => social.threads.push({ id: d.id, ...d.data() }));
+  social.threads.sort((a, b) => String(b.lastAt || "").localeCompare(String(a.lastAt || "")));
+  social.threads.forEach((t) => {
+    const incoming = t.lastFrom && t.lastFrom !== state.uid;
+    const isNew = (t.lastAt || "") > (msgNotified[t.id] || "");
+    if (incoming && isNew) {
+      msgNotified[t.id] = t.lastAt;
+      const other = otherMember(t);
+      if (state.tab === "social" && social.view === "convo" && social.convoUid === other) {
+        // convo listener handles the live append; just clear the unread state
+        social.lastMsgSeen[t.id] = t.lastAt;
+        localStorage.setItem("socialMsgSeen", JSON.stringify(social.lastMsgSeen));
+      } else {
+        showMsgBanner(other, t.lastText || "");
+      }
+    }
+  });
+  renderThreads();
+}
+
+function subscribeConvo() {
+  if (convoUnsub) { convoUnsub(); convoUnsub = null; }
+  const key = pairKey(state.uid, social.convoUid);
+  try {
+    convoUnsub = db.collection("threads").doc(key).collection("messages")
+      .orderBy("createdAt", "desc").limit(100)
+      .onSnapshot((snap) => {
+        social.convoMsgs = [];
+        snap.forEach((d) => social.convoMsgs.unshift({ id: d.id, ...d.data() }));
+        renderConvo();
+      }, () => {});
+  } catch (e) { /* stub path: loadConvo() covers it */ }
+}
+
+function unsubscribeConvo() {
+  if (convoUnsub) { convoUnsub(); convoUnsub = null; }
+}
+
+/* ---------- drop-down message banner ---------- */
+
+let bannerTimer = null;
+let bannerUid = null;
+
+function showMsgBanner(uid, text) {
+  bannerUid = uid;
+  const name = personName(uid);
+  $("#msgBannerName").textContent = name;
+  $("#msgBannerPreview").textContent = (text || "").slice(0, 80);
+  const av = $("#msgBannerAvatar");
+  while (av.firstChild) av.removeChild(av.firstChild);
+  const fresh = avatarEl(uid, name);
+  av.className = fresh.className;
+  av.style.cssText = fresh.style.cssText;
+  while (fresh.firstChild) av.appendChild(fresh.firstChild);
+  const banner = $("#msgBanner");
+  banner.hidden = false;
+  requestAnimationFrame(() => banner.classList.add("show"));
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(hideMsgBanner, 4500);
+}
+
+function hideMsgBanner() {
+  const banner = $("#msgBanner");
+  banner.classList.remove("show");
+  clearTimeout(bannerTimer);
+  setTimeout(() => { banner.hidden = true; }, 250);
+}
+
 async function openConvo(uid) {
   social.convoUid = uid;
   switchSocialView("convo");
@@ -561,6 +651,7 @@ async function openConvo(uid) {
   av.className = fresh.className;
   av.style.cssText = fresh.style.cssText;
   while (fresh.firstChild) av.appendChild(fresh.firstChild);
+  subscribeConvo();
   await loadConvo();
   // mark seen
   const key = pairKey(state.uid, uid);
@@ -790,6 +881,7 @@ function bindCrop() {
 /* ---------- view switching + wiring ---------- */
 
 function switchSocialView(view) {
+  if (social.view === "convo" && view !== "convo") unsubscribeConvo();
   social.view = view;
   ["feed", "people", "messages", "convo"].forEach((v) => {
     const panel = { feed: "#socialFeed", people: "#socialPeople", messages: "#socialMessages", convo: "#socialConvo" }[v];
@@ -836,6 +928,12 @@ function bindSocialUI() {
   const avBtn = $("#avatarUploadBtn");
   if (avBtn) avBtn.addEventListener("click", uploadAvatar);
   bindCrop();
+  $("#msgBannerClose").addEventListener("click", (e) => { e.stopPropagation(); hideMsgBanner(); });
+  $("#msgBanner").addEventListener("click", () => {
+    const uid = bannerUid;
+    hideMsgBanner();
+    if (uid) { go("social"); switchSocialView("messages"); openConvo(uid); }
+  });
 }
 
 window.socialBoot = socialBoot;
