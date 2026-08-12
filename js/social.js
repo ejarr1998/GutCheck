@@ -5,6 +5,9 @@
    dayKey, compressForFirestore, downscaleDataUrl, confirmAction).
    ========================================================================== */
 
+let lastConvoY = 0;
+let suppressConvoHeadToggle = false;
+
 const SOCIAL_REACTIONS = ["👏", "💪", "❤️"];
 
 const social = {
@@ -680,6 +683,7 @@ async function openConvo(uid) {
   av.className = fresh.className;
   av.style.cssText = fresh.style.cssText;
   while (fresh.firstChild) av.appendChild(fresh.firstChild);
+  $("#socialConvo").classList.remove("head-hidden");
   subscribeConvo();
   await loadConvo();
   // mark seen
@@ -739,10 +743,17 @@ function renderConvo() {
     if (mine) bubble.appendChild(msgDelBtn(m.id));
     box.appendChild(bubble);
   });
-  // the convo list is part of the normal page flow now (like the coach chats),
-  // so scroll the page itself rather than a now-nonexistent inner scrollbox
-  if (box.lastElementChild) box.lastElementChild.scrollIntoView({ behavior: "auto", block: "end" });
-  else window.scrollTo({ top: document.documentElement.scrollHeight });
+  // jump to the newest message inside the convo's own scrollbox, and keep the
+  // header visible — programmatic jumps shouldn't trip the scroll-up/down hider
+  suppressConvoHeadToggle = true;
+  $("#socialConvo").classList.remove("head-hidden");
+  box.scrollTop = box.scrollHeight;
+  // release suppression only after the layout has settled (two frames),
+  // so a late async scroll event can't spuriously hide the header
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    lastConvoY = box.scrollTop;
+    suppressConvoHeadToggle = false;
+  }));
 }
 
 async function sendThreadMessage(toUid, text) {
@@ -1015,6 +1026,17 @@ function bindSocialUI() {
   const avBtn = $("#avatarUploadBtn");
   if (avBtn) avBtn.addEventListener("click", uploadAvatar);
   bindCrop();
+  // auto-hide the convo header: hides scrolling down, returns on any scroll up
+  const convoScroll = $("#convoScroll");
+  convoScroll.addEventListener("scroll", () => {
+    if (suppressConvoHeadToggle) return;
+    const y = convoScroll.scrollTop;
+    const d = y - lastConvoY;
+    lastConvoY = y;
+    if (y < 8) { $("#socialConvo").classList.remove("head-hidden"); return; }
+    if (d > 4) $("#socialConvo").classList.add("head-hidden");
+    else if (d < -4) $("#socialConvo").classList.remove("head-hidden");
+  }, { passive: true });
   $("#msgBannerClose").addEventListener("click", (e) => { e.stopPropagation(); hideMsgBanner(); });
   $("#msgBanner").addEventListener("click", () => {
     const uid = bannerUid;
