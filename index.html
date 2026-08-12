@@ -315,31 +315,41 @@
   <!-- ============ COACHES ============ -->
   <section class="tab-panel" id="panel-nutrition" hidden data-coach="nutrition">
     <div class="card" id="foodLogCard">
-      <h2 class="card-title">🍽 Food log</h2>
-      <div class="heatmap-wrap">
-        <div class="heatmap-grid" id="foodHeatmapGrid"></div>
+      <button type="button" class="card-collapse-toggle" id="foodLogToggle">
+        <h2 class="card-title">🍽 Food log</h2>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="card-body" id="foodLogBody">
+        <div class="heatmap-wrap">
+          <div class="heatmap-grid" id="foodHeatmapGrid"></div>
+        </div>
+        <div class="heatmap-legend wrap">
+          <span><div class="heat-cell"></div> no data</span>
+          <span><div class="heat-cell food-off"></div> missed both</span>
+          <span><div class="heat-cell food-partial"></div> hit one</span>
+          <span><div class="heat-cell food-good"></div> hit both</span>
+        </div>
+        <div class="heatmap-summary" id="foodHeatmapSummary"></div>
+        <div class="heatmap-day-detail" id="foodHeatmapDetail" hidden></div>
       </div>
-      <div class="heatmap-legend wrap">
-        <span><div class="heat-cell"></div> no data</span>
-        <span><div class="heat-cell food-off"></div> missed both</span>
-        <span><div class="heat-cell food-partial"></div> hit one</span>
-        <span><div class="heat-cell food-good"></div> hit both</span>
-      </div>
-      <div class="heatmap-summary" id="foodHeatmapSummary"></div>
-      <div class="heatmap-day-detail" id="foodHeatmapDetail" hidden></div>
     </div>
   </section>
   <section class="tab-panel" id="panel-gym" hidden data-coach="gym">
     <div class="card" id="heatmapCard">
-      <h2 class="card-title">🏋️ Workout history</h2>
-      <div class="heatmap-wrap">
-        <div class="heatmap-grid" id="heatmapGrid"></div>
+      <button type="button" class="card-collapse-toggle" id="workoutLogToggle">
+        <h2 class="card-title">🏋️ Workout history</h2>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="card-body" id="workoutLogBody">
+        <div class="heatmap-wrap">
+          <div class="heatmap-grid" id="heatmapGrid"></div>
+        </div>
+        <div class="heatmap-legend">
+          less <div class="heat-cell"></div><div class="heat-cell lvl1"></div><div class="heat-cell lvl2"></div><div class="heat-cell lvl3"></div><div class="heat-cell lvl4"></div> more
+        </div>
+        <div class="heatmap-summary" id="heatmapSummary"></div>
+        <div class="heatmap-day-detail" id="heatmapDetail" hidden></div>
       </div>
-      <div class="heatmap-legend">
-        less <div class="heat-cell"></div><div class="heat-cell lvl1"></div><div class="heat-cell lvl2"></div><div class="heat-cell lvl3"></div><div class="heat-cell lvl4"></div> more
-      </div>
-      <div class="heatmap-summary" id="heatmapSummary"></div>
-      <div class="heatmap-day-detail" id="heatmapDetail" hidden></div>
     </div>
   </section>
 
@@ -361,7 +371,7 @@
         <label>Daily calories<input id="s_calories" inputmode="numeric"></label>
         <label>Daily protein (g)<input id="s_protein" inputmode="numeric"></label>
       </div>
-      <label class="full">Baby due date<input id="s_babyDue" type="date"></label>
+      <label class="full" id="babyDueRow">Baby due date<input id="s_babyDue" type="date"></label>
       <label class="full">Coach context
         <textarea id="s_context" rows="5"></textarea>
       </label>

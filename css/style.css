@@ -159,6 +159,16 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 /* export */
 .export-status { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
 
+/* collapsible cards (food log, workout history) */
+.card-collapse-toggle {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; color: inherit; font: inherit;
+}
+.card-collapse-toggle .chevron { font-size: 14px; color: var(--muted); transition: transform 0.2s ease; flex-shrink: 0; margin-left: 8px; }
+.card.collapsed .card-collapse-toggle .chevron { transform: rotate(-90deg); }
+.card.collapsed .card-body { display: none; }
+.card-body { margin-top: 4px; }
+
 /* onboarding coach picker */
 .coach-picker { display: flex; gap: 10px; margin-top: 6px; }
 .coach-pick-card {

@@ -50,6 +50,9 @@ function toast(msg, isErr) {
 // All AI keys live server-side in Cloud Functions secrets — nothing to paste here.
 const AVATARS = { nutrition: null, gym: null }; // data URLs from settings/avatars
 
+// Ethan's account — gates admin-only features (legacy migration, baby countdown card).
+const ADMIN_EMAIL = "ejarr1998@gmail.com";
+
 const DEFAULT_PROFILE = {
   name: "",
   height: "6'2\"",
@@ -323,13 +326,15 @@ function renderDashboard() {
   $("#statProtein").textContent = p.protein + "g";
   $("#statPhotos").textContent = String(state.photos.length);
 
-  // baby countdown (dashboard card)
-  if (p.babyDue) {
+  // baby countdown (dashboard card) — Ethan's account only, not shown for other users
+  if (p.babyDue && String(state.userEmail || "").toLowerCase() === ADMIN_EMAIL) {
     const due = new Date(p.babyDue + "T00:00:00");
     const days = Math.max(0, Math.ceil((due - Date.now()) / 86400000));
     $("#babyDays").textContent = String(days);
     $("#babyDueLabel").textContent = "due " + due.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
     $("#babyCard").hidden = false;
+  } else {
+    $("#babyCard").hidden = true;
   }
 
   const wStreak = computeStreak(state.weights, "loggedAt");
@@ -2365,6 +2370,8 @@ function renderSettings() {
   $("#s_genderGym").value = g.gym || "female";
   const acct = $("#accountEmail");
   if (acct) acct.textContent = state.userEmail || "unknown";
+  const babyRow = $("#babyDueRow");
+  if (babyRow) babyRow.hidden = String(state.userEmail || "").toLowerCase() !== ADMIN_EMAIL;
   renderAvatarPreview();
 }
 
@@ -2659,7 +2666,6 @@ async function signOut() {
 // (Ethan deletes it manually in the Firebase console after verifying).
 // Defense in depth: only the admin account ever ATTEMPTS to read the legacy
 // flat collections — don't rely solely on Firestore rules denying the read.
-const ADMIN_EMAIL = "ejarr1998@gmail.com";
 async function migrateLegacy() {
   const flagRef = db.collection(ucol("settings")).doc("migration");
   try {
@@ -2781,6 +2787,18 @@ function registerSW() {
 }
 
 /* ---------- boot ---------- */
+/* ---------- collapsible cards (food log, workout history) ---------- */
+function wireCollapsibleCard(toggleId, cardId, storageKey) {
+  const toggle = $("#" + toggleId);
+  const card = $("#" + cardId);
+  if (!toggle || !card) return;
+  if (localStorage.getItem(storageKey) === "1") card.classList.add("collapsed");
+  toggle.addEventListener("click", () => {
+    card.classList.toggle("collapsed");
+    localStorage.setItem(storageKey, card.classList.contains("collapsed") ? "1" : "0");
+  });
+}
+
 function wireEvents() {
   document.querySelectorAll("[data-go]").forEach((b) => {
     b.addEventListener("click", () => go(b.dataset.go));
@@ -2862,6 +2880,8 @@ function wireEvents() {
       } catch (err) { toast("Could not read photo: " + err.message, true); }
     }
   });
+  wireCollapsibleCard("foodLogToggle", "foodLogCard", "gutcheck_collapsed_foodlog");
+  wireCollapsibleCard("workoutLogToggle", "heatmapCard", "gutcheck_collapsed_workoutlog");
 }
 
 async function boot() {
