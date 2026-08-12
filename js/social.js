@@ -963,7 +963,7 @@ function bindSocialUI() {
 
 // Get this from Firebase Console → Project Settings → Cloud Messaging →
 // Web Push certificates (generate a key pair if none exists yet).
-const FCM_VAPID_KEY = "PASTE_YOUR_VAPID_KEY_HERE";
+const FCM_VAPID_KEY = "BHsm3RlyWmbWUr0r-CWrMoeiXl0Tmt-_N01HHsUEI8MbK4XsE9D6T_cW4-EvrPaci_pdMkJL8OKdtnbefCVNIMg";
 
 let fcmMessaging = null;
 let pushSwReg = null;
