@@ -159,6 +159,9 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 /* export */
 .export-status { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
 
+.fuel-actions #mealUploadBtn { flex: 1; }
+.fuel-actions #mealEstimateBtn { flex: 2; }
+
 /* collapsible cards (food log, workout history) */
 .card-collapse-toggle {
   display: flex; align-items: center; justify-content: space-between; width: 100%;

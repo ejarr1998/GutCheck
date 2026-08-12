@@ -122,6 +122,8 @@ function applyCoachGenders() {
     COACHES[c].short = pick.short;
     COACHES[c].greeting = COACHES[c]._greetingF.split(femShort).join(pick.short);
   });
+  const estBtn = $("#mealEstimateBtn");
+  if (estBtn) estBtn.textContent = "✨ " + COACHES.nutrition.short + ", log this";
 }
 
 function rebuildCoachPanels() {
@@ -577,17 +579,9 @@ function takeCameraPhoto(onFile) {
   input.click();
 }
 
-function pickMealPhoto(useCamera) {
-  if (useCamera) {
-    takeCameraPhoto(async (f) => {
-      try {
-        const data = await compressForFirestore(f);
-        mealAttach = await downscaleDataUrl(data, 768, 0.8);
-        renderMealPhotoPrev();
-      } catch (err) { toast("Could not read photo: " + err.message, true); }
-    });
-    return;
-  }
+// Plain file input, no "capture" attribute — on mobile this opens the native
+// chooser with both Camera and Photo Library options, so one button covers both.
+function pickMealPhoto() {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -2816,8 +2810,7 @@ function wireEvents() {
   });
   $("#measForm").addEventListener("submit", (e) => e.preventDefault());
   $("#logMeasBtn").addEventListener("click", logMeasurements);
-  $("#mealPhotoBtn").addEventListener("click", () => pickMealPhoto(true));
-  $("#mealGalleryBtn").addEventListener("click", () => pickMealPhoto(false));
+  $("#mealUploadBtn").addEventListener("click", () => pickMealPhoto());
   $("#mealEstimateBtn").addEventListener("click", estimateMealWithMaya);
   $("#mealManualBtn").addEventListener("click", openManualMealEntry);
   $("#mealSaveBtn").addEventListener("click", saveMealEntry);
