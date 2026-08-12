@@ -234,9 +234,22 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
     if (coachId === "nutrition") tools.push(...MAYA_TOOLS);
   }
 
-  let mealLogged = false;
+  // Replace images in older turns with a text placeholder — used for the
+  // one retry when a turn comes back with no text at all. The most common
+  // cause is a photo-heavy history hitting the model's context/image limits
+  // (stop_reason "model_context_window_exceeded" returns empty content).
+  function stripOldImages(msgs, keepLast = 4) {
+    return msgs.map((m, i) => {
+      if (i >= msgs.length - keepLast || !Array.isArray(m.content)) return m;
+      const content = m.content.map((b) => (b.type === "image" ? { type: "text", text: "[earlier photo]" } : b));
+      return Object.assign({}, m, { content });
+    });
+  }
+
+  let mealLogged = null; // summary string when log_meal fired, else null
   let remembered = null;
   let lastText = "";
+  let retriedEmpty = false;
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const body = {
       model: CLAUDE_MODEL,
@@ -249,6 +262,13 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
     const blocks = data.content || [];
     lastText = blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     if (data.stop_reason !== "tool_use") {
+      if (!lastText && !retriedEmpty) {
+        // one retry with a slimmer, image-free history before giving up
+        retriedEmpty = true;
+        console.warn("coachCall empty response, stop_reason=" + data.stop_reason + " — retrying with trimmed history");
+        history = stripOldImages(history).slice(-24);
+        continue;
+      }
       return { text: lastText || "", mealLogged, remembered };
     }
     // execute every tool call in this turn, then feed the results back
@@ -264,7 +284,11 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
           if (fact) remembered = fact;
         } else {
           out = await runMayaTool(uid, b.name, b.input || {}, targets);
-          if (String(out).startsWith("Logged:")) mealLogged = true;
+          if (String(out).startsWith("Logged:")) {
+            // e.g. "Panko chicken (410 kcal, 21g protein)" — shown client-side
+            // as a visible "action taken" chip so a claimed log is provable
+            mealLogged = String(out).split(". ")[0].replace("Logged: ", "");
+          }
         }
       } catch (e) {
         out = "Tool failed: " + e.message;

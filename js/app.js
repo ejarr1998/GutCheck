@@ -243,9 +243,10 @@ async function loadChat(coach) {
   state.chats[coach] = await fsGet("chats/" + coach + "/messages", "at", "asc");
 }
 
-async function addChatMsg(coach, role, content, img) {
+async function addChatMsg(coach, role, content, img, extra) {
   const msg = { role, content, at: new Date().toISOString() };
   if (img) msg.img = img;
+  if (extra) Object.assign(msg, extra); // e.g. { action } — a coach tool action to display
   const ref = await db.collection(ucol("chats")).doc(coach).collection("messages").add(msg);
   state.chats[coach].push({ id: ref.id, ...msg });
 }
@@ -1384,6 +1385,9 @@ function renderChat(coachId) {
       spk.addEventListener("click", () => speakText(coachId, m.content, spk));
       div.appendChild(spk);
       wrap.appendChild(botRow(coachId, div));
+      // tool actions (meal logged) get a color-coded chip so "I logged it"
+      // is always backed by a visible, persisted receipt
+      if (m.action) wrap.appendChild(el("div", "action-note", "✅ Logged: " + m.action + " — see Today's fuel on Home"));
     } else {
       wrap.appendChild(div);
       if (m.remembered) {
@@ -1497,7 +1501,10 @@ function coachSystemParts(coachId) {
         "\n- VISIBILITY: you CAN see the client's food log. Every message you receive includes a LOGGED SO FAR TODAY section listing everything eaten today with running totals — " +
         "including meals the client logged themselves on the home screen, not just ones you logged. " +
         "When the client asks what they've eaten, what's in their tracker, or what's left today, answer straight from that section with the item names and numbers. " +
-        "Never say you can't see the log or the dashboard — you can.",
+        "Never say you can't see the log or the dashboard — you can." +
+        "\n- QUOTING TOTALS: the LOGGED SO FAR TODAY section and the log_meal tool result are the ONLY sources of truth for today's numbers. " +
+        "The tool result reports exact running totals after every log. Quote those numbers verbatim — never estimate, recompute, round, or add them up yourself. " +
+        "If the numbers aren't in front of you, say what you see in the log instead of guessing.",
       memory: memoryBlockFor("nutrition"),
       dynamic,
     };
@@ -1557,6 +1564,10 @@ async function callClaude(coachId, alreadyRemembered) {
       ],
     };
   });
+  // Refresh the food log before building the prompt so the LOGGED SO FAR
+  // TODAY section Maya sees can't be stale (e.g. app open for hours while
+  // meals were logged elsewhere) — wrong totals erode trust fast.
+  if (coachId === "nutrition") { try { await loadMeals(); } catch (e) { /* offline — prompt uses what we have */ } }
   const parts = coachSystemParts(coachId);
   // When the client already saved an explicit "remember …" fact, tell the
   // coach it's done so it doesn't double-save — just acknowledge it.
@@ -1587,7 +1598,7 @@ async function callClaude(coachId, alreadyRemembered) {
     if (!arr.some((f) => f.toLowerCase() === String(data.remembered).toLowerCase())) arr.push(data.remembered);
   }
   if (!data.text) throw new Error("Coach returned an empty response");
-  return data.text;
+  return { text: data.text, action: data.mealLogged || null };
 }
 
 /* ---------- voice (Deepgram nova-3 STT; ElevenLabs TTS, Aura-2 fallback — all via voiceCall) ---------- */
@@ -2439,14 +2450,16 @@ async function sendCoachMessage(coachId, text) {
   }
   renderChat(coachId);
   scrollChatBottom(coachId, true);
-  let reply;
+  let reply, replyAction = null;
   try {
-    reply = await callClaude(coachId, rememberedSaved ? rememberFact : null);
+    const result = await callClaude(coachId, rememberedSaved ? rememberFact : null);
+    reply = result.text;
+    replyAction = result.action;
   } catch (e) {
     reply = "Hmm, my brain hiccuped: " + e.message + ". Check the API key in Settings and try again.";
   }
   try {
-    await addChatMsg(coachId, "assistant", reply);
+    await addChatMsg(coachId, "assistant", reply, null, replyAction ? { action: replyAction } : null);
   } catch (e) {
     console.warn("reply save failed:", e);
     state.chats[coachId].push({ id: "local-" + Date.now(), role: "assistant", content: reply, at: new Date().toISOString() });
