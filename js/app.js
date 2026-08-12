@@ -1218,8 +1218,13 @@ function buildCoachPanel(coachId) {
   const bar = el("form", "chat-input-bar");
   const ta = document.createElement("textarea");
   ta.rows = 1;
-  ta.placeholder = "Ask " + meta.short + " anything…";
+  ta.placeholder = "Message " + meta.short + "…";
   ta.id = "chatInput-" + coachId;
+  const autoGrow = () => {
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 130) + "px";
+  };
+  ta.addEventListener("input", autoGrow);
   ta.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -2450,6 +2455,7 @@ async function sendCoachMessage(coachId, text) {
   const img = state.attach[coachId] || null;
   state.sending[coachId] = true;
   $("#chatInput-" + coachId).value = "";
+  $("#chatInput-" + coachId).style.height = "auto"; // undo any auto-grow from the message just sent
   state.attach[coachId] = null;
   renderAttachPrev(coachId);
   const rememberFact = extractRememberFact(text);

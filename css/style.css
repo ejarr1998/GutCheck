@@ -388,7 +388,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
   padding: 10px 0 6px; border-top: 1px solid var(--border);
   display: flex; gap: 8px; align-items: flex-end;
 }
-.chat-input-bar textarea { flex: 1; max-height: 130px; min-height: 44px; }
+.chat-input-bar textarea { flex: 1; max-height: 130px; min-height: 44px; resize: none; }
 .send-btn {
   flex-shrink: 0; width: 44px; height: 44px; border-radius: 10px;
   background: var(--lime); color: var(--lime-dark);
@@ -415,7 +415,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
 .speak-btn:hover { opacity: 1; }
 .speak-btn.speaking { opacity: 1; color: var(--lime); }
 .msg.bot { position: relative; padding-right: 42px; }
-.chat-disclaimer { text-align: center; font-size: 10.5px; color: var(--muted); margin-top: 5px; }
+.chat-disclaimer { text-align: center; font-size: 10.5px; color: var(--muted); margin-top: 8px; }
 
 /* ---------- tab bar ---------- */
 .tabbar {
