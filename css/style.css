@@ -215,8 +215,10 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 .meal-form textarea { margin-bottom: 8px; }
 .meal-confirm { margin-top: 12px; background: var(--card2); border: 1px solid var(--lime); border-radius: 10px; padding: 12px; }
 .meal-est { font-size: 13px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
-.fuel-edit { flex: 1; }
-.fuel-edit input { margin-top: 4px; }
+.fuel-edit { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.fuel-edit input { margin-top: 4px; width: 100%; }
+.meal-confirm .row-form { align-items: flex-end; margin-bottom: 0; }
+.meal-confirm .row-form .btn { flex: 0 0 auto; align-self: flex-end; padding: 11px 16px; }
 .meal-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); vertical-align: middle; margin-right: 8px; }
 
 /* ---------- buttons / inputs ---------- */
