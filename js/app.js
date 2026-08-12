@@ -2501,12 +2501,13 @@ function openOnboarding() {
   selectPickerCard("gym", obSelectedGender.gym);
   $("#ob_calories").value = existing ? (p.calories || "") : "";
   $("#ob_protein").value = existing ? (p.protein || "") : "";
+  $("#obStep1").hidden = false;
+  $("#obStep2").hidden = true;
   $("#onboardGate").hidden = false;
-  ensureAllAvatarsGenerating(); // fire-and-forget — runs while they fill out the form
+  ensureAllAvatarsGenerating(); // fire-and-forget — runs the whole time they're on step 1
 }
 
-async function saveOnboarding() {
-  const btn = $("#onboardSave");
+function validateStep1Fields() {
   const height = $("#ob_height").value.trim();
   const age = $("#ob_age").value.trim();
   const startWeight = $("#ob_startWeight").value.trim();
@@ -2519,8 +2520,31 @@ async function saveOnboarding() {
     const msg = "Fill in height, age, current + goal weight, and your targets (edit any field above and calories/protein auto-calculate).";
     if (errBox) { errBox.textContent = msg; errBox.hidden = false; }
     toast(msg, true);
-    return;
+    return false;
   }
+  return true;
+}
+
+function advanceToStep2() {
+  if (!validateStep1Fields()) return;
+  $("#obStep1").hidden = true;
+  $("#obStep2").hidden = false;
+}
+
+function backToStep1() {
+  $("#obStep2").hidden = true;
+  $("#obStep1").hidden = false;
+}
+
+async function saveOnboarding() {
+  if (!validateStep1Fields()) { backToStep1(); return; }
+  const btn = $("#onboardSave");
+  const height = $("#ob_height").value.trim();
+  const age = $("#ob_age").value.trim();
+  const startWeight = $("#ob_startWeight").value.trim();
+  const goalWeight = $("#ob_goalWeight").value.trim();
+  const calories = $("#ob_calories").value.trim();
+  const protein = $("#ob_protein").value.trim();
   const actLabel = { "1.3": "mostly sedentary", "1.45": "moderately active", "1.6": "very active" }[$("#ob_activity").value] || "moderately active";
   const goalLabel = { lose: "lose fat", maintain: "maintain weight", gain: "build muscle" }[$("#ob_goal").value];
   const equipLabel = { home: "at home with minimal equipment", gym: "at a full gym", both: "a mix of home and gym" }[$("#ob_equipment").value];
@@ -2796,6 +2820,8 @@ function wireEvents() {
   $("#signOutBtn").addEventListener("click", signOut);
   $("#googleSignInBtn").addEventListener("click", signInWithGoogle);
   $("#onboardSave").addEventListener("click", saveOnboarding);
+  $("#obContinue").addEventListener("click", advanceToStep2);
+  $("#obBack").addEventListener("click", backToStep1);
   $("#redoOnboard").addEventListener("click", openOnboarding);
   $("#onboardGate").addEventListener("click", (e) => {
     const card = e.target.closest(".coach-pick-card");

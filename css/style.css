@@ -239,7 +239,14 @@ textarea { resize: vertical; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 label { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; }
 label input, label textarea { margin-top: 5px; font-weight: 400; color: var(--text); }
-label.full { display: block; margin-bottom: 12px; }
+label.full { display: block; grid-column: 1 / -1; margin-bottom: 12px; }
+
+.coach-picker-section { margin: 18px 0; }
+.cps-label { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.coach-picker.big { display: flex; gap: 12px; }
+.coach-picker.big .coach-pick-card { padding: 16px 10px; }
+.coach-picker.big .cpc-avatar { width: 84px; height: 84px; }
+.coach-picker.big .cpc-name { font-size: 15px; }
 code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
 
 .pill {

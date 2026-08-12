@@ -37,9 +37,9 @@
 </div>
 
 <div id="onboardGate" class="auth-gate" hidden>
-  <div class="onboard-card card">
-    <h2 class="card-title">🎯 Set up your coaches</h2>
-    <p class="sub left">A few quick answers — your nutritionist and trainer tailor everything to this. You can change any of it later in Settings.</p>
+  <div class="onboard-card card" id="obStep1">
+    <h2 class="card-title">🎯 Tell us about you</h2>
+    <p class="sub left">A few quick answers so your coaches can tailor everything. You can change any of it later in Settings.</p>
 
     <div class="form-grid">
       <label>Height<input id="ob_height" placeholder="e.g. 5'10&quot;"></label>
@@ -71,32 +71,7 @@
           <option value="both">Mix of both</option>
         </select>
       </label>
-      <label class="full">Nutritionist
-        <div class="coach-picker" id="pickerNutrition">
-          <button type="button" class="coach-pick-card" data-persona="maya" data-coach="nutrition">
-            <div class="cpc-avatar" id="cpcAvatar-maya"><div class="cpc-spinner"></div></div>
-            <div class="cpc-name">Maya</div>
-          </button>
-          <button type="button" class="coach-pick-card" data-persona="marcus" data-coach="nutrition">
-            <div class="cpc-avatar" id="cpcAvatar-marcus"><div class="cpc-spinner"></div></div>
-            <div class="cpc-name">Marcus</div>
-          </button>
-        </div>
-      </label>
-      <label class="full">Trainer
-        <div class="coach-picker" id="pickerGym">
-          <button type="button" class="coach-pick-card" data-persona="vanessa" data-coach="gym">
-            <div class="cpc-avatar" id="cpcAvatar-vanessa"><div class="cpc-spinner"></div></div>
-            <div class="cpc-name">Vanessa</div>
-          </button>
-          <button type="button" class="coach-pick-card" data-persona="dre" data-coach="gym">
-            <div class="cpc-avatar" id="cpcAvatar-dre"><div class="cpc-spinner"></div></div>
-            <div class="cpc-name">Dre</div>
-          </button>
-        </div>
-      </label>
     </div>
-    <p class="hint left">Your coaches' photos are generating in the background while you fill this out — pick whichever face fits once they're ready.</p>
 
     <label class="full">Injuries, limitations, health notes
       <textarea id="ob_injuries" rows="2" placeholder="e.g. lower-back issues — avoid heavy spinal loading"></textarea>
@@ -115,7 +90,43 @@
     <p class="hint left">Targets auto-calculated from your answers — tweak them if you already know your numbers.</p>
 
     <p class="auth-err" id="onboardErr" hidden></p>
-    <button class="btn big" id="onboardSave">Save &amp; meet my coaches</button>
+    <button class="btn big" id="obContinue">Continue</button>
+  </div>
+
+  <div class="onboard-card card" id="obStep2" hidden>
+    <h2 class="card-title">👥 Pick your coaches</h2>
+    <p class="sub left">Your nutritionist and trainer have been generating in the background this whole time — pick whichever face fits.</p>
+
+    <div class="coach-picker-section">
+      <div class="cps-label">Nutritionist</div>
+      <div class="coach-picker big" id="pickerNutrition">
+        <button type="button" class="coach-pick-card" data-persona="maya" data-coach="nutrition">
+          <div class="cpc-avatar" id="cpcAvatar-maya"><div class="cpc-spinner"></div></div>
+          <div class="cpc-name">Maya</div>
+        </button>
+        <button type="button" class="coach-pick-card" data-persona="marcus" data-coach="nutrition">
+          <div class="cpc-avatar" id="cpcAvatar-marcus"><div class="cpc-spinner"></div></div>
+          <div class="cpc-name">Marcus</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="coach-picker-section">
+      <div class="cps-label">Trainer</div>
+      <div class="coach-picker big" id="pickerGym">
+        <button type="button" class="coach-pick-card" data-persona="vanessa" data-coach="gym">
+          <div class="cpc-avatar" id="cpcAvatar-vanessa"><div class="cpc-spinner"></div></div>
+          <div class="cpc-name">Vanessa</div>
+        </button>
+        <button type="button" class="coach-pick-card" data-persona="dre" data-coach="gym">
+          <div class="cpc-avatar" id="cpcAvatar-dre"><div class="cpc-spinner"></div></div>
+          <div class="cpc-name">Dre</div>
+        </button>
+      </div>
+    </div>
+
+    <button class="btn ghost big" id="obBack" type="button" style="margin-top:14px">← Back</button>
+    <button class="btn big" id="onboardSave" style="margin-top:8px">Save &amp; meet my coaches</button>
   </div>
 </div>
 
