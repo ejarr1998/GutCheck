@@ -426,32 +426,33 @@ function renderPeople() {
   if (!list) return;
   while (list.firstChild) list.removeChild(list.firstChild);
 
-  const mkRow = (uid, name, sub, isMe) => {
-    const row = el("div", "person-row");
+  const mkRow = (uid, name, isMe) => {
+    const row = el("div", "person-row" + (isMe ? "" : " tappable"));
     row.appendChild(avatarEl(uid, name, "md"));
     const txt = el("div", "person-text");
     txt.appendChild(el("div", "person-name", name + (isMe ? " (you)" : "")));
-    if (sub) txt.appendChild(el("div", "person-sub", sub));
     row.appendChild(txt);
     if (!isMe) {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".person-actions")) return; // nudge/message buttons handle themselves
+        switchSocialView("messages");
+        openConvo(uid);
+      });
       const actions = el("div", "person-actions");
-      const nudge = el("button", "btn ghost sm", "💪 Nudge");
+      const nudge = el("button", "btn ghost xs", "💪");
       nudge.type = "button";
-      nudge.addEventListener("click", () => sendNudge(uid));
-      const msg = el("button", "btn sm", "Message");
-      msg.type = "button";
-      msg.addEventListener("click", () => { switchSocialView("messages"); openConvo(uid); });
+      nudge.title = "Nudge " + name;
+      nudge.addEventListener("click", (e) => { e.stopPropagation(); sendNudge(uid); });
       actions.appendChild(nudge);
-      actions.appendChild(msg);
       row.appendChild(actions);
     }
     return row;
   };
 
-  list.appendChild(mkRow(state.uid, myName(), state.userEmail || state.userPhone || "", true));
+  list.appendChild(mkRow(state.uid, myName(), true));
   Object.keys(social.people).forEach((uid) => {
     const p = social.people[uid];
-    list.appendChild(mkRow(uid, p.name || "Friend", p.email || p.phone || "", false));
+    list.appendChild(mkRow(uid, p.name || "Friend", false));
   });
 }
 

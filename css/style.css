@@ -254,6 +254,7 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
 }
 .btn.ghost:hover { border-color: var(--lime); filter: none; }
 .btn.sm { padding: 7px 13px; font-size: 13px; }
+.btn.xs { padding: 6px 10px; font-size: 14px; line-height: 1; }
 .btn.danger { background: var(--danger); color: #fff; }
 
 input, select, textarea {
@@ -728,7 +729,10 @@ body.kbd-open .tabbar { display: none; }
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 12px 14px; margin-bottom: 10px;
 }
+.person-row.tappable { cursor: pointer; }
+.person-row.tappable:active { background: var(--card2); }
 .person-text { flex: 1; min-width: 0; }
+.person-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .person-sub {
   font-size: 12px; color: var(--muted); margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -827,9 +831,6 @@ body.kbd-open .tabbar { display: none; }
 
 /* empty states */
 #feedEmpty, #threadsEmpty { text-align: center; padding: 48px 24px; font-size: 14px; }
-
-/* people rows: wrap actions under the text on narrow screens */
-.person-row { flex-wrap: wrap; }
 
 /* avatar crop sheet */
 .crop-card { padding-bottom: 18px; }
