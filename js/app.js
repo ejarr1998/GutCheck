@@ -931,11 +931,11 @@ async function deleteViewerPhoto() {
 /* ---------- workout history heatmap (reads what finishWorkout() already saves) ---------- */
 const HEATMAP_WEEKS = 18;
 
-function heatLevel(effort) {
-  if (!effort) return 0;
-  if (effort <= 3) return 1;
-  if (effort <= 7) return 2;
-  if (effort <= 12) return 3;
+function heatLevel(tagCount) {
+  if (!tagCount) return 0;
+  if (tagCount === 1) return 1;
+  if (tagCount === 2) return 2;
+  if (tagCount === 3) return 3;
   return 4;
 }
 
@@ -945,17 +945,14 @@ function renderHeatmap() {
   if (!grid) return;
   while (grid.firstChild) grid.removeChild(grid.firstChild);
 
-  // sum sets + run distance per day (a run counts as activity even with 0 "sets")
+  // group logged tags per day (legacy entries without a tags array still count as one generic entry)
   const byDay = {};
   state.workouts.forEach((w) => {
-    const k = dayKey(w.startedAt);
-    byDay[k] = byDay[k] || { sets: 0, durationSec: 0, sessions: 0, distanceM: 0, runs: 0 };
-    byDay[k].sets += w.sets || 0;
-    byDay[k].durationSec += w.durationSec || 0;
-    byDay[k].sessions += 1;
-    if (w.type === "run") { byDay[k].distanceM += w.distanceM || 0; byDay[k].runs += 1; }
+    const k = dayKey(w.loggedAt || w.startedAt);
+    byDay[k] = byDay[k] || { tags: [] };
+    const tags = Array.isArray(w.tags) && w.tags.length ? w.tags : ["Workout"];
+    tags.forEach((t) => byDay[k].tags.push(t));
   });
-  Object.values(byDay).forEach((v) => { v.effort = v.sets + (v.distanceM / 1000) * 3; });
 
   const totalDays = HEATMAP_WEEKS * 7;
   const today = new Date();
@@ -972,40 +969,24 @@ function renderHeatmap() {
     const k = dayKey(d.toISOString());
     const inFuture = d > today;
     const info = byDay[k];
-    const lvl = info ? heatLevel(info.effort) : 0;
+    const lvl = info ? heatLevel(info.tags.length) : 0;
     const cell = el("div", "heat-cell" + (lvl ? " lvl" + lvl : ""));
     if (inFuture) cell.style.visibility = "hidden";
     else {
-      let t = fmtDayShort(d.toISOString());
-      if (info) {
-        t += " — " + info.sessions + " session" + (info.sessions > 1 ? "s" : "");
-        if (info.sets) t += ", " + info.sets + " sets";
-        if (info.runs) t += ", " + fmtMiles(info.distanceM) + " mi run" + (info.runs > 1 ? "s" : "");
-      } else t += " — rest day";
-      cell.title = t;
+      cell.title = fmtDayShort(d.toISOString()) + (info ? " — " + info.tags.join(", ") : " — rest day");
       cell.addEventListener("click", () => showHeatmapDay(k, info));
     }
     grid.appendChild(cell);
   }
 
   const activeDays = Object.keys(byDay).length;
-  const totalSets = Object.values(byDay).reduce((s, v) => s + v.sets, 0);
-  const totalMiles = Object.values(byDay).reduce((s, v) => s + v.distanceM, 0) / 1609.344;
   if (!activeDays) {
-    summary.textContent = "No workouts logged yet — finish a session from the timer to see it here.";
+    summary.textContent = "No workouts logged yet — tap Log workout to see it here.";
   } else {
     summary.innerHTML = "";
     summary.appendChild(document.createTextNode("Last " + HEATMAP_WEEKS + " weeks: "));
     summary.appendChild(el("b", null, String(activeDays)));
-    summary.appendChild(document.createTextNode(" active days, "));
-    summary.appendChild(el("b", null, String(totalSets)));
-    summary.appendChild(document.createTextNode(" sets"));
-    if (totalMiles > 0.01) {
-      summary.appendChild(document.createTextNode(", "));
-      summary.appendChild(el("b", null, totalMiles.toFixed(1)));
-      summary.appendChild(document.createTextNode(" mi run"));
-    }
-    summary.appendChild(document.createTextNode("."));
+    summary.appendChild(document.createTextNode(" active days."));
   }
 }
 
@@ -1027,11 +1008,7 @@ function showHeatmapDay(k, info) {
     detail.appendChild(el("div", "hd-row", "Rest day — no workout logged."));
     return;
   }
-  const mins = Math.round(info.durationSec / 60);
-  let line = info.sessions + " session" + (info.sessions > 1 ? "s" : "") + " · " + mins + " min total";
-  if (info.sets) line += " · " + info.sets + " sets";
-  if (info.runs) line += " · " + fmtMiles(info.distanceM) + " mi run" + (info.runs > 1 ? "s" : "");
-  detail.appendChild(el("div", "hd-row", line));
+  detail.appendChild(el("div", "hd-row", info.tags.join(", ")));
 }
 
 /* ---------- food log history heatmap (past days: hit/miss calorie + protein targets) ---------- */
@@ -1185,9 +1162,9 @@ function buildCoachPanel(coachId) {
   idBox.appendChild(nameBox);
   head.appendChild(idBox);
   const actions = el("div", "chat-head-actions");
-  const timerB = el("button", "link-btn timer-btn", "⏱");
+  const timerB = el("button", "link-btn timer-btn", coachId === "gym" ? "📋" : "⏱");
   timerB.id = "timerBtn-" + coachId;
-  timerB.title = coachId === "gym" ? "Workout timer" : "Kitchen timer";
+  timerB.title = coachId === "gym" ? "Log workout" : "Kitchen timer";
   timerB.addEventListener("click", () => openTimerSheet(coachId));
   actions.appendChild(timerB);
   const reset = el("button", "link-btn", "↺ Reset");
@@ -1911,48 +1888,16 @@ function wireViewport() {
   window.visualViewport.addEventListener("scroll", sync);
 }
 
-/* ---------- workout timer (active session: clock + sets + rest timer) ---------- */
-const WK_KEY = "gutcheck_workout";
-const wk = {
-  active: false,   // session in progress (even while paused)
-  running: false,  // clock currently ticking
-  startEpoch: 0,
-  accumMs: 0,
-  sets: 0,
-  restDur: 90,     // last-used rest length (seconds)
-  restEnd: 0,
-  restActive: false,
-  expanded: false,
-  endArmed: false,
-  begunAt: null,
-  tick: null,
-};
+/* ---------- workout log: simple big-picture tagging (no timers/sets/GPS) ---------- */
+// Logging a workout is just "what did you do today" — tap the tags that
+// apply, add your own if one's missing, hit Log. That's the whole feature.
+const DEFAULT_WORKOUT_TAGS = ["Run", "Walk", "Arms", "Legs", "Back", "Chest", "Shoulders", "Core"];
+let WORKOUT_TAGS = DEFAULT_WORKOUT_TAGS.slice();
+const wkLog = { selected: [] };
 
-function wkElapsed() {
-  return wk.accumMs + (wk.running ? Date.now() - wk.startEpoch : 0);
-}
 function fmtClock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
-}
-function wkSave() {
-  try {
-    localStorage.setItem(WK_KEY, JSON.stringify({
-      active: wk.active, running: wk.running, startEpoch: wk.startEpoch,
-      accumMs: wk.accumMs, sets: wk.sets, restDur: wk.restDur,
-      restEnd: wk.restEnd, restActive: wk.restActive, begunAt: wk.begunAt,
-    }));
-  } catch (e) { /* storage full/blocked — timer still works in-memory */ }
-}
-function wkRestore() {
-  try {
-    const raw = localStorage.getItem(WK_KEY);
-    if (!raw) return;
-    const s = JSON.parse(raw);
-    if (!s.active) return;
-    Object.assign(wk, s);
-    if (wk.restActive && Date.now() >= wk.restEnd) wk.restActive = false; // rest expired while away
-  } catch (e) { /* ignore corrupt state */ }
 }
 
 let _wkAudio = null;
@@ -1973,6 +1918,18 @@ function beep() {
   } catch (e) { /* audio unavailable — vibration + flash still fire */ }
 }
 
+async function loadWorkoutTags() {
+  try {
+    const doc = await db.collection(ucol("settings")).doc("workoutTags").get();
+    const saved = doc.exists && Array.isArray(doc.data().tags) ? doc.data().tags : [];
+    if (saved.length) WORKOUT_TAGS = Array.from(new Set([...saved, ...DEFAULT_WORKOUT_TAGS]));
+  } catch (e) { /* offline or brand-new account — defaults are fine */ }
+}
+async function saveWorkoutTags() {
+  try { await db.collection(ucol("settings")).doc("workoutTags").set({ tags: WORKOUT_TAGS }); }
+  catch (e) { toast("Couldn't save that workout type: " + e.message, true); }
+}
+
 function buildTimerUI() {
   const wkOv = el("div", "picker");
   wkOv.id = "wkSheet";
@@ -1980,7 +1937,7 @@ function buildTimerUI() {
   const wkSh = el("div", "picker-sheet timer-sheet");
   wkSh.id = "wkSheetBody";
   wkOv.appendChild(wkSh);
-  wkOv.addEventListener("click", (e) => { if (e.target === wkOv && !(rn.active && rn.locked)) wkOv.hidden = true; });
+  wkOv.addEventListener("click", (e) => { if (e.target === wkOv) wkOv.hidden = true; });
   document.body.appendChild(wkOv);
 
   const ckOv = el("div", "picker");
@@ -1994,11 +1951,12 @@ function buildTimerUI() {
 
   renderWk();
   renderCk();
-  wk.tick = setInterval(wkTick, 300);
+  setInterval(wkTick, 300);
 }
 
 function openTimerSheet(coachId) {
   if (coachId === "gym") {
+    wkLog.selected = [];
     renderWk();
     $("#wkSheet").hidden = false;
   } else {
@@ -2018,619 +1976,95 @@ function sheetHead(body, title) {
 }
 
 function renderWk() {
-  const chip = $("#timerBtn-gym");
-  if (chip) {
-    const anyActive = wk.active || rn.active;
-    chip.classList.toggle("live", anyActive);
-    chip.classList.toggle("resting", wk.active && wk.restActive);
-    if (rn.active) chip.textContent = "🏃 " + fmtClock(rnElapsed());
-    else chip.textContent = wk.active ? "⏱ " + fmtClock(wkElapsed()) : "⏱";
-  }
   const body = $("#wkSheetBody");
   if (!body) return;
   while (body.firstChild) body.removeChild(body.firstChild);
+  sheetHead(body, "📋 Log workout");
+  body.appendChild(el("p", "timer-hint", "Tap everything you did today, then log it. Don't see it? Add your own — it'll show up here from now on."));
 
-  if (rn.active) { renderRunActive(body); return; }
+  const grid = el("div", "wk-tag-grid");
+  WORKOUT_TAGS.forEach((tag) => {
+    const chip = el("button", "wk-tag" + (wkLog.selected.includes(tag) ? " on" : ""), tag);
+    chip.type = "button";
+    chip.addEventListener("click", () => {
+      const i = wkLog.selected.indexOf(tag);
+      if (i >= 0) wkLog.selected.splice(i, 1); else wkLog.selected.push(tag);
+      renderWk();
+    });
+    grid.appendChild(chip);
+  });
+  const addBtn = el("button", "wk-tag wk-tag-add", "+ Add new");
+  addBtn.type = "button";
+  addBtn.addEventListener("click", addWorkoutTag);
+  grid.appendChild(addBtn);
+  body.appendChild(grid);
 
-  sheetHead(body, "🏋️ Workout timer");
+  const log = el("button", "btn big", wkLog.selected.length ? "Log " + wkLog.selected.join(", ") : "Log workout");
+  log.disabled = !wkLog.selected.length;
+  log.addEventListener("click", logWorkout);
+  body.appendChild(log);
+}
 
-  if (!wk.active) {
-    body.appendChild(el("p", "timer-hint", "Clock your session, count sets, time your rests — it logs to your history when you finish."));
-    const row = el("div", "wk-choice-row");
-    const go = el("button", "btn big", "🏋️ Strength workout");
-    go.id = "wkStart";
-    go.addEventListener("click", startWorkout);
-    row.appendChild(go);
-    const goRun = el("button", "btn big ghost", "🏃 Go for a run");
-    goRun.id = "rnStart";
-    goRun.addEventListener("click", startRun);
-    row.appendChild(goRun);
-    body.appendChild(row);
+function promptWorkoutTag() {
+  return new Promise((resolve) => {
+    const gate = $("#tagPromptGate");
+    const input = $("#tagPromptInput");
+    input.value = "";
+    gate.hidden = false;
+    setTimeout(() => input.focus(), 50);
+    const add = $("#tagPromptAdd");
+    const cancel = $("#tagPromptCancel");
+    const done = (val) => {
+      gate.hidden = true;
+      add.onclick = null;
+      cancel.onclick = null;
+      input.onkeydown = null;
+      resolve(val);
+    };
+    add.onclick = () => done(input.value.trim());
+    cancel.onclick = () => done(null);
+    input.onkeydown = (e) => { if (e.key === "Enter") done(input.value.trim()); };
+  });
+}
+
+async function addWorkoutTag() {
+  const name = await promptWorkoutTag();
+  if (!name) return;
+  if (WORKOUT_TAGS.some((t) => t.toLowerCase() === name.toLowerCase())) {
+    toast("You already have a \"" + name + "\" option");
     return;
   }
+  WORKOUT_TAGS.push(name);
+  wkLog.selected.push(name);
+  await saveWorkoutTags();
+  renderWk();
+}
 
-  const big = el("div", "wk-big", wk.restActive ? fmtClock(wk.restEnd - Date.now()) : fmtClock(wkElapsed()));
-  big.id = "wkBig";
-  body.appendChild(big);
-  const lbl = el("div", "wk-label", wk.restActive ? "rest — next set when it hits zero" : "session time");
-  lbl.id = "wkBigLabel";
-  body.appendChild(lbl);
-  const stat = el("div", "timer-stat", wk.sets + (wk.sets === 1 ? " set done" : " sets done"));
-  stat.id = "wkSets";
-  body.appendChild(stat);
-
-  const row = el("div", "wk-row");
-  const setB = el("button", "btn", "＋ Set done");
-  setB.id = "wkSetBtn";
-  setB.title = "Logs a set and starts your rest";
-  setB.addEventListener("click", setDone);
-  row.appendChild(setB);
-  const pause = el("button", "btn ghost", wk.running ? "⏸ Pause" : "▶ Resume");
-  pause.id = "wkPause";
-  pause.addEventListener("click", pauseResume);
-  row.appendChild(pause);
-  body.appendChild(row);
-
-  body.appendChild(el("div", "wk-label", "rest timer"));
-  const chips = el("div", "wk-chips");
-  [60, 90, 120, 180].forEach((s) => {
-    const c = el("button", "wk-chip" + (wk.restDur === s ? " on" : ""), s + "s");
-    c.addEventListener("click", () => startRest(s));
-    chips.appendChild(c);
-  });
-  const plus = el("button", "wk-chip", "+15s");
-  plus.id = "wkPlus";
-  plus.addEventListener("click", () => addRest(15));
-  chips.appendChild(plus);
-  const skip = el("button", "wk-chip", "Skip");
-  skip.id = "wkSkip";
-  skip.addEventListener("click", skipRest);
-  chips.appendChild(skip);
-  body.appendChild(chips);
-
-  const fin = el("button", "btn ghost big", "Finish & log workout");
-  fin.id = "wkFinish";
-  fin.addEventListener("click", () => armEnd(fin));
-  body.appendChild(fin);
+async function logWorkout() {
+  if (!wkLog.selected.length) return;
+  const entry = { loggedAt: new Date().toISOString(), tags: wkLog.selected.slice() };
+  try {
+    const ref = await db.collection(ucol("workouts")).add(entry);
+    state.workouts.push({ id: ref.id, ...entry });
+    renderHeatmap();
+    toast("Logged: " + entry.tags.join(", ") + " 💪");
+  } catch (e) {
+    toast("Couldn't save that workout: " + e.message, true);
+    return;
+  }
+  wkLog.selected = [];
+  renderWk();
+  const sheet = $("#wkSheet");
+  if (sheet) sheet.hidden = true;
 }
 
 function wkTick() {
-  if (wk.active) {
-    const chip = $("#timerBtn-gym");
-    if (chip) chip.textContent = "⏱ " + fmtClock(wkElapsed());
-    const big = $("#wkBig");
-    const lbl = $("#wkBigLabel");
-    if (wk.restActive) {
-      const rem = wk.restEnd - Date.now();
-      if (rem <= 0) { wkRestDone(); }
-      else {
-        if (big) big.textContent = fmtClock(rem);
-        if (lbl) lbl.textContent = "rest — next set when it hits zero";
-      }
-    } else {
-      if (big) big.textContent = fmtClock(wkElapsed());
-      if (lbl && lbl.textContent.startsWith("rest —")) lbl.textContent = "session time";
-    }
-  }
-  if (rn.active) {
-    const chip = $("#timerBtn-gym");
-    if (chip && !wk.active) chip.textContent = "🏃 " + fmtClock(rnElapsed());
-    if (rn.running && rn.lastFixAt && Date.now() - rn.lastFixAt > 20000) { rn.gpsOk = false; updateGpsWarning(); }
-    const pace = fmtPace(currentPaceSecPerMi()) + "/mi";
-    const dist = fmtMiles(rn.distanceM) + " mi";
-    const time = fmtClock(rnElapsed());
-    ["", "L"].forEach((suf) => {
-      const t = $("#rnTime" + suf); if (t) t.textContent = time;
-      const p = $("#rnPace" + suf); if (p) p.textContent = pace;
-      const d = $("#rnDist" + suf); if (d) d.textContent = dist;
-    });
-  }
   if (ck.running) {
     const rem = ck.endAt - Date.now();
     if (rem <= 0) { ckDone(); return; }
     const big = $("#ckBig");
     if (big) big.textContent = fmtClock(rem);
   }
-}
-
-function startWorkout() {
-  wk.active = true;
-  wk.running = true;
-  wk.startEpoch = Date.now();
-  wk.accumMs = 0;
-  wk.sets = 0;
-  wk.begunAt = new Date().toISOString();
-  wk.restActive = false;
-  wkSave();
-  renderWk();
-  toast("Workout started — clock's running. Tap ＋ Set done after each set.");
-}
-
-function pauseResume() {
-  if (wk.running) {
-    wk.accumMs += Date.now() - wk.startEpoch;
-    wk.running = false;
-  } else {
-    wk.startEpoch = Date.now();
-    wk.running = true;
-  }
-  wkSave();
-  renderWk();
-}
-
-function setDone() {
-  wk.sets += 1;
-  const setsEl = $("#wkSets");
-  if (setsEl) setsEl.textContent = wk.sets + (wk.sets === 1 ? " set" : " sets");
-  startRest(wk.restDur);
-}
-
-function startRest(sec) {
-  wk.restDur = sec;
-  wk.restEnd = Date.now() + sec * 1000;
-  wk.restActive = true;
-  wkSave();
-  renderWk();
-}
-
-function addRest(sec) {
-  if (!wk.restActive) return;
-  wk.restEnd += sec * 1000;
-  wkSave();
-}
-
-function skipRest() {
-  wk.restActive = false;
-  wkSave();
-  renderWk();
-}
-
-function wkRestDone() {
-  wk.restActive = false;
-  wkSave();
-  beep();
-  if (navigator.vibrate) navigator.vibrate([180, 80, 180]);
-  const sheet = $("#wkSheet");
-  const body = $("#wkSheetBody");
-  if (body && sheet && !sheet.hidden) {
-    body.classList.remove("wk-flash");
-    void body.offsetWidth; // restart animation
-    body.classList.add("wk-flash");
-  }
-  renderWk();
-  const lbl = $("#wkBigLabel");
-  if (lbl) lbl.textContent = "rest over — GO 💪";
-}
-
-function armEnd(btn) {
-  if (!wk.endArmed) {
-    wk.endArmed = true;
-    const old = btn.textContent;
-    btn.textContent = "Sure?";
-    setTimeout(() => {
-      wk.endArmed = false;
-      if (btn.isConnected) btn.textContent = old;
-    }, 3000);
-    return;
-  }
-  finishWorkout();
-}
-
-async function finishWorkout() {
-  const durSec = Math.round(wkElapsed() / 1000);
-  const sets = wk.sets;
-  const entry = {
-    startedAt: wk.begunAt || new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-    durationSec: durSec,
-    sets: sets,
-  };
-  try {
-    if (db) {
-      const ref = await db.collection(ucol("workouts")).add(entry);
-      state.workouts.push({ id: ref.id, ...entry });
-      renderHeatmap();
-    }
-    toast("Workout logged — " + Math.max(1, Math.round(durSec / 60)) + " min, " + sets + " sets 💪");
-  } catch (e) {
-    toast("Workout done but save failed: " + e.message, true);
-  }
-  wk.active = false;
-  wk.running = false;
-  wk.restActive = false;
-  wk.sets = 0;
-  wk.accumMs = 0;
-  wk.endArmed = false;
-  try { localStorage.removeItem(WK_KEY); } catch (e) { /* noop */ }
-  renderWk();
-  const sheet = $("#wkSheet");
-  if (sheet) sheet.hidden = true;
-}
-
-/* ---------- run tracking (GPS distance/pace, screen-on only) ---------- */
-/* Uses the browser Geolocation API while the app stays open and the screen
-   is on. iOS/Android both throttle or kill background tabs, so this can't
-   reliably track with the screen off/phone locked — that's a real PWA
-   limitation, not a bug. The Wake Lock API below just asks the screen to
-   stay awake while a run is active; it's best-effort and silently no-ops
-   on browsers that don't support it. */
-const RN_KEY = "gutcheck_run";
-const rn = {
-  active: false,
-  running: false,       // GPS watch currently live (false while paused)
-  startEpoch: 0,
-  accumMs: 0,
-  distanceM: 0,
-  lastPos: null,         // {lat,lng,t} last accepted GPS fix
-  route: [],             // [[lat,lng], ...] trail for drawing + storage
-  watchId: null,
-  wakeLock: null,
-  locked: false,         // pocket-lock: blocks all taps except slide-to-unlock
-  begunAt: null,
-  gpsOk: true,
-  lastFixAt: 0,
-  endArmed: false,
-};
-
-function rnElapsed() {
-  return rn.accumMs + (rn.running ? Date.now() - rn.startEpoch : 0);
-}
-function haversineM(a, b) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
-}
-function fmtMiles(m) { return (m / 1609.344).toFixed(2); }
-function fmtPace(secPerMile) {
-  if (!isFinite(secPerMile) || secPerMile <= 0) return "--:--";
-  const m = Math.floor(secPerMile / 60), s = Math.round(secPerMile % 60);
-  return m + ":" + String(s).padStart(2, "0");
-}
-function currentPaceSecPerMi() {
-  const mi = rn.distanceM / 1609.344;
-  if (mi < 0.02) return 0; // not enough distance yet for a meaningful pace
-  return (rnElapsed() / 1000) / mi;
-}
-
-function rnSave() {
-  try {
-    localStorage.setItem(RN_KEY, JSON.stringify({
-      active: rn.active, running: rn.running, startEpoch: rn.startEpoch,
-      accumMs: rn.accumMs, distanceM: rn.distanceM, lastPos: rn.lastPos,
-      route: rn.route, locked: rn.locked, begunAt: rn.begunAt,
-    }));
-  } catch (e) { /* storage full/blocked — run still tracks in-memory */ }
-}
-function rnRestore() {
-  try {
-    const raw = localStorage.getItem(RN_KEY);
-    if (!raw) return;
-    const s = JSON.parse(raw);
-    if (!s.active) return;
-    Object.assign(rn, s);
-    if (rn.running) { startGeoWatch(); requestWakeLock(); }
-  } catch (e) { /* ignore corrupt state */ }
-}
-
-async function requestWakeLock() {
-  try {
-    if ("wakeLock" in navigator) {
-      rn.wakeLock = await navigator.wakeLock.request("screen");
-      rn.wakeLock.addEventListener("release", () => { rn.wakeLock = null; });
-    }
-  } catch (e) { /* unsupported/denied — tracking still works, screen may just sleep */ }
-}
-function releaseWakeLock() {
-  if (rn.wakeLock) { try { rn.wakeLock.release(); } catch (e) { /* noop */ } rn.wakeLock = null; }
-}
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && rn.active && rn.running) requestWakeLock();
-});
-
-function onGeoPosition(pos) {
-  const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-  const t = pos.timestamp || Date.now();
-  rn.lastFixAt = Date.now();
-  rn.gpsOk = true;
-  if (accuracy != null && accuracy > 30) { updateGpsWarning(); return; } // too noisy — wait for a better fix
-  const point = { lat, lng, t };
-  if (rn.lastPos) {
-    const dt = (t - rn.lastPos.t) / 1000;
-    if (dt > 0) {
-      const dM = haversineM(rn.lastPos, point);
-      const impliedSpeed = dM / dt; // m/s — >12 m/s (~27mph) means a GPS jump, not a real stride
-      if (impliedSpeed <= 12) {
-        rn.lastPos = point;
-        if (dM >= 1) { // ignore sub-meter jitter so standing still doesn't rack up "distance"
-          rn.distanceM += dM;
-          rn.route.push([+lat.toFixed(6), +lng.toFixed(6)]);
-        }
-      }
-    }
-  } else {
-    rn.lastPos = point;
-    rn.route.push([+lat.toFixed(6), +lng.toFixed(6)]);
-  }
-  rnSave();
-  const cvs = $("#runTrail");
-  if (cvs) drawRunTrail(cvs);
-  updateGpsWarning();
-}
-function onGeoError() {
-  rn.gpsOk = false;
-  updateGpsWarning();
-}
-function updateGpsWarning() {
-  const warn = $("#rnGpsWarn");
-  if (warn) warn.hidden = rn.gpsOk;
-}
-function startGeoWatch() {
-  if (!navigator.geolocation || rn.watchId != null) return;
-  rn.watchId = navigator.geolocation.watchPosition(onGeoPosition, onGeoError, {
-    enableHighAccuracy: true, maximumAge: 2000, timeout: 15000,
-  });
-}
-function stopGeoWatch() {
-  if (rn.watchId != null) { navigator.geolocation.clearWatch(rn.watchId); rn.watchId = null; }
-}
-
-function startRun() {
-  if (!navigator.geolocation) { toast("This browser can't access GPS for run tracking", true); return; }
-  navigator.geolocation.getCurrentPosition(
-    () => {
-      Object.assign(rn, {
-        active: true, running: true, startEpoch: Date.now(), accumMs: 0,
-        distanceM: 0, lastPos: null, route: [], locked: false,
-        begunAt: new Date().toISOString(), gpsOk: true, endArmed: false,
-      });
-      rnSave();
-      startGeoWatch();
-      requestWakeLock();
-      renderWk();
-      toast("Run started — keep the app open and screen on for GPS to keep tracking.");
-    },
-    () => toast("Location access denied — allow it in your browser settings to track runs", true),
-    { enableHighAccuracy: true, timeout: 10000 }
-  );
-}
-
-function pauseResumeRun() {
-  if (rn.running) {
-    rn.accumMs += Date.now() - rn.startEpoch;
-    rn.running = false;
-    stopGeoWatch();
-    releaseWakeLock();
-  } else {
-    rn.startEpoch = Date.now();
-    rn.running = true;
-    rn.lastPos = null; // don't count the paused gap as distance
-    startGeoWatch();
-    requestWakeLock();
-  }
-  rnSave();
-  renderWk();
-}
-
-function toggleRunLock() {
-  rn.locked = !rn.locked;
-  rnSave();
-  renderWk();
-}
-
-function armEndRun(btn) {
-  if (!rn.endArmed) {
-    rn.endArmed = true;
-    const old = btn.textContent;
-    btn.textContent = "Sure?";
-    setTimeout(() => { rn.endArmed = false; if (btn.isConnected) btn.textContent = old; }, 3000);
-    return;
-  }
-  finishRun();
-}
-
-function downsampleRoute(route, target) {
-  const step = Math.ceil(route.length / target);
-  return route.filter((_, i) => i % step === 0);
-}
-
-async function finishRun() {
-  stopGeoWatch();
-  releaseWakeLock();
-  const durSec = Math.round(rnElapsed() / 1000);
-  const distanceM = Math.round(rn.distanceM);
-  const entry = {
-    type: "run",
-    startedAt: rn.begunAt || new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-    durationSec: durSec,
-    distanceM: distanceM,
-    route: rn.route.length > 500 ? downsampleRoute(rn.route, 500) : rn.route,
-  };
-  try {
-    if (db) {
-      const ref = await db.collection(ucol("workouts")).add(entry);
-      state.workouts.push({ id: ref.id, ...entry });
-      renderHeatmap();
-    }
-    toast("Run logged — " + fmtMiles(distanceM) + " mi in " + Math.max(1, Math.round(durSec / 60)) + " min 🏃");
-  } catch (e) {
-    toast("Run done but save failed: " + e.message, true);
-  }
-  Object.assign(rn, {
-    active: false, running: false, locked: false, distanceM: 0,
-    accumMs: 0, route: [], lastPos: null, endArmed: false,
-  });
-  try { localStorage.removeItem(RN_KEY); } catch (e) { /* noop */ }
-  renderWk();
-  const sheet = $("#wkSheet");
-  if (sheet) sheet.hidden = true;
-}
-
-/* ---- run UI: live stats + trail canvas + pocket-lock screen ---- */
-function buildRunStat(value, label) {
-  const box = el("div", "run-stat");
-  box.appendChild(el("div", "run-stat-v", value));
-  box.appendChild(el("div", "run-stat-l", label));
-  return box;
-}
-
-function drawRunTrail(cvs) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = cvs.clientWidth, h = cvs.clientHeight;
-  if (!w || !h) return;
-  cvs.width = w * dpr;
-  cvs.height = h * dpr;
-  const ctx = cvs.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  if (rn.route.length < 2) return;
-  const lats = rn.route.map((p) => p[0]), lngs = rn.route.map((p) => p[1]);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  const pad = 14;
-  const latCorrection = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180) || 1;
-  const spanLat = Math.max(0.00005, maxLat - minLat);
-  const spanLng = Math.max(0.00005, (maxLng - minLng) * latCorrection);
-  const scale = Math.min((w - pad * 2) / spanLng, (h - pad * 2) / spanLat);
-  const toXY = (p) => {
-    const x = pad + ((p[1] - minLng) * latCorrection) * scale + Math.max(0, (w - pad * 2 - spanLng * scale) / 2);
-    const y = h - (pad + (p[0] - minLat) * scale + Math.max(0, (h - pad * 2 - spanLat * scale) / 2));
-    return [x, y];
-  };
-  ctx.strokeStyle = "#a3e635";
-  ctx.lineWidth = 3;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  rn.route.forEach((p, i) => {
-    const [x, y] = toXY(p);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-  const [sx, sy] = toXY(rn.route[0]);
-  const [ex, ey] = toXY(rn.route[rn.route.length - 1]);
-  ctx.fillStyle = "#9aa08c";
-  ctx.beginPath(); ctx.arc(sx, sy, 4, 0, 7); ctx.fill();
-  ctx.fillStyle = "#a3e635";
-  ctx.beginPath(); ctx.arc(ex, ey, 5, 0, 7); ctx.fill();
-}
-
-function renderRunActive(body) {
-  if (rn.locked) { renderRunLocked(body); return; }
-  sheetHead(body, "🏃 Run tracker");
-  const warn = el("div", "run-gps-warn", "⚠ Weak or lost GPS signal — keep the sky visible");
-  warn.id = "rnGpsWarn";
-  warn.hidden = rn.gpsOk;
-  body.appendChild(warn);
-
-  const dist = el("div", "wk-big", fmtMiles(rn.distanceM) + " mi");
-  dist.id = "rnDist";
-  body.appendChild(dist);
-  body.appendChild(el("div", "wk-label", "distance"));
-
-  const statRow = el("div", "run-stat-row");
-  const time = buildRunStat(fmtClock(rnElapsed()), "time");
-  time.querySelector(".run-stat-v").id = "rnTime";
-  const pace = buildRunStat(fmtPace(currentPaceSecPerMi()) + "/mi", "avg pace");
-  pace.querySelector(".run-stat-v").id = "rnPace";
-  statRow.appendChild(time);
-  statRow.appendChild(pace);
-  body.appendChild(statRow);
-
-  const cvs = document.createElement("canvas");
-  cvs.className = "run-trail";
-  cvs.id = "runTrail";
-  body.appendChild(cvs);
-  requestAnimationFrame(() => drawRunTrail(cvs));
-
-  const row = el("div", "wk-row");
-  const pause = el("button", "btn ghost", rn.running ? "⏸ Pause" : "▶ Resume");
-  pause.addEventListener("click", pauseResumeRun);
-  row.appendChild(pause);
-  const lock = el("button", "btn", "🔒 Lock");
-  lock.title = "Lock the screen so a sweaty pocket can't misclick";
-  lock.addEventListener("click", toggleRunLock);
-  row.appendChild(lock);
-  body.appendChild(row);
-
-  const fin = el("button", "btn ghost big", "Finish & log run");
-  fin.addEventListener("click", () => armEndRun(fin));
-  body.appendChild(fin);
-}
-
-function renderRunLocked(body) {
-  body.appendChild(el("div", "run-lock-badge", "🔒 Locked for your run"));
-  const dist = el("div", "wk-big", fmtMiles(rn.distanceM) + " mi");
-  dist.id = "rnDistL";
-  body.appendChild(dist);
-  body.appendChild(el("div", "wk-label", "distance"));
-
-  const statRow = el("div", "run-stat-row");
-  const time = buildRunStat(fmtClock(rnElapsed()), "time");
-  time.querySelector(".run-stat-v").id = "rnTimeL";
-  const pace = buildRunStat(fmtPace(currentPaceSecPerMi()) + "/mi", "avg pace");
-  pace.querySelector(".run-stat-v").id = "rnPaceL";
-  statRow.appendChild(time);
-  statRow.appendChild(pace);
-  body.appendChild(statRow);
-
-  body.appendChild(el("p", "timer-hint", "Nothing here responds to taps. Slide all the way to unlock before pausing or finishing."));
-  body.appendChild(buildSlideToUnlock());
-}
-
-function buildSlideToUnlock() {
-  const track = el("div", "run-slide-track");
-  const fill = el("div", "run-slide-fill");
-  track.appendChild(fill);
-  const label = el("div", "run-slide-label", "slide to unlock →");
-  track.appendChild(label);
-  const handle = el("button", "run-slide-handle", "🔓");
-  handle.type = "button";
-  track.appendChild(handle);
-
-  let dragging = false, startX = 0, maxX = 0;
-  function setX(x) {
-    handle.style.transform = "translateX(" + x + "px)";
-    fill.style.width = (40 + x) + "px";
-    label.style.opacity = String(Math.max(0, 1 - x / maxX));
-  }
-  function clearTransitions() {
-    handle.style.transition = ""; fill.style.transition = ""; label.style.transition = "";
-  }
-  function onDown(e) {
-    dragging = true;
-    startX = e.clientX;
-    maxX = Math.max(1, track.getBoundingClientRect().width - 48);
-    clearTransitions();
-    try { handle.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
-  }
-  function onMove(e) {
-    if (!dragging) return;
-    setX(Math.min(maxX, Math.max(0, e.clientX - startX)));
-  }
-  function onUp(e) {
-    if (!dragging) return;
-    dragging = false;
-    const dx = Math.min(maxX, Math.max(0, e.clientX - startX));
-    if (dx >= maxX * 0.82) {
-      setX(maxX);
-      setTimeout(() => { rn.locked = false; rnSave(); renderWk(); }, 120);
-    } else {
-      handle.style.transition = "transform .2s ease";
-      fill.style.transition = "width .2s ease";
-      label.style.transition = "opacity .2s ease";
-      setX(0);
-      setTimeout(clearTransitions, 220);
-    }
-  }
-  handle.addEventListener("pointerdown", onDown);
-  handle.addEventListener("pointermove", onMove);
-  handle.addEventListener("pointerup", onUp);
-  handle.addEventListener("pointercancel", onUp);
-  return track;
 }
 
 
@@ -3331,8 +2765,6 @@ async function boot() {
   hideSplash();
   buildCoachPanel("nutrition");
   buildCoachPanel("gym");
-  wkRestore();
-  rnRestore();
   ckRestore();
   buildTimerUI();
   setupJumpBtns();
@@ -3385,6 +2817,7 @@ async function startApp() {
       loadMeasurements(),
       loadMeals(),
       loadWorkouts(),
+      loadWorkoutTags(),
       loadChat("nutrition"),
       loadChat("gym"),
       loadAvatars(),
