@@ -171,31 +171,35 @@ async function runMayaTool(uid, name, input, targets) {
 async function runDeleteMealTool(uid, input, targets) {
   const id = String(input.meal_id || "").trim();
   if (!id) return "Rejected: no meal_id given — use the exact id from the LOGGED SO FAR TODAY list, not the food name.";
-  const ref = db.doc(`users/${uid}/meals/${id}`);
-  let snap;
   try {
-    snap = await ref.get();
+    const ref = db.doc(`users/${uid}/meals/${id}`);
+    const snap = await ref.get();
+    if (!snap.exists) return "Rejected: that meal entry no longer exists — it may have already been removed.";
+    const removed = snap.data();
+    await ref.delete();
+    const today = dayKey(removed.loggedAt || new Date().toISOString());
+    const all = await db.collection(`users/${uid}/meals`).get();
+    let calSoFar = 0, proSoFar = 0;
+    all.forEach((d) => {
+      const m = d.data();
+      if (dayKey(m.loggedAt) === today) {
+        calSoFar += m.calories || 0;
+        proSoFar += m.protein || 0;
+      }
+    });
+    const tCal = (targets && targets.calories) || "?";
+    const tPro = (targets && targets.protein) || "?";
+    return "Deleted: " + (removed.description || "that meal") + " (" + (removed.calories || 0) + " kcal, " + (removed.protein || 0) + "g protein). " +
+      "Today's totals are now " + Math.round(calSoFar) + " kcal and " + Math.round(proSoFar) +
+      "g protein against targets of " + tCal + " kcal and " + tPro + "g.";
   } catch (e) {
-    return "Rejected: couldn't look up that meal (" + e.message + ").";
+    // logged with the exact id the model sent — if this fires again, the
+    // Cloud Functions log will show precisely what was wrong with it
+    // (malformed id, wrong uid path, permission issue, etc.) instead of the
+    // model having to guess and narrate a vague "system error" to the client
+    console.error("delete_meal failed for uid=" + uid + " meal_id=" + JSON.stringify(input.meal_id) + ": " + e.message);
+    return "Rejected: couldn't delete that meal (" + e.message + "). Tell the client there was a technical issue and to try again in a moment, or delete it manually from the dashboard tracker.";
   }
-  if (!snap.exists) return "Rejected: that meal entry no longer exists — it may have already been removed.";
-  const removed = snap.data();
-  await ref.delete();
-  const today = dayKey(removed.loggedAt || new Date().toISOString());
-  const all = await db.collection(`users/${uid}/meals`).get();
-  let calSoFar = 0, proSoFar = 0;
-  all.forEach((d) => {
-    const m = d.data();
-    if (dayKey(m.loggedAt) === today) {
-      calSoFar += m.calories || 0;
-      proSoFar += m.protein || 0;
-    }
-  });
-  const tCal = (targets && targets.calories) || "?";
-  const tPro = (targets && targets.protein) || "?";
-  return "Deleted: " + (removed.description || "that meal") + " (" + (removed.calories || 0) + " kcal, " + (removed.protein || 0) + "g protein). " +
-    "Today's totals are now " + Math.round(calSoFar) + " kcal and " + Math.round(proSoFar) +
-    "g protein against targets of " + tCal + " kcal and " + tPro + "g.";
 }
 
 async function callAnthropic(apiKey, body) {
