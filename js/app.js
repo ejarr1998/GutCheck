@@ -1385,9 +1385,13 @@ function renderChat(coachId) {
       spk.addEventListener("click", () => speakText(coachId, m.content, spk));
       div.appendChild(spk);
       wrap.appendChild(botRow(coachId, div));
-      // tool actions (meal logged) get a color-coded chip so "I logged it"
-      // is always backed by a visible, persisted receipt
-      if (m.action) wrap.appendChild(el("div", "action-note", "✅ Logged: " + m.action + " — see Today's fuel on Home"));
+      // tool actions (meal logged/deleted) get a color-coded chip so "I did
+      // that" is always backed by a visible, persisted receipt
+      if (m.action) {
+        const deleted = m.action.type === "deleted";
+        const label = (deleted ? "🗑️ Removed: " : "✅ Logged: ") + m.action.summary + " — see Today's fuel on Home";
+        wrap.appendChild(el("div", "action-note" + (deleted ? " deleted" : ""), label));
+      }
     } else {
       wrap.appendChild(div);
       if (m.remembered) {
@@ -1480,7 +1484,8 @@ function coachSystemParts(coachId) {
     // memory block below so logging a meal doesn't blow the memory cache too.
     const dynamic = todayMeals.length
       ? "LOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
-        todayMeals.map((m) => m.name || m.description || m.desc || "a logged meal").join(", ") + ". Use this to say what's left for the day, not just the flat daily target."
+        todayMeals.map((m) => (m.name || m.description || m.desc || "a logged meal") + " (id " + m.id + ")").join(", ") +
+        ". Use this to say what's left for the day, not just the flat daily target. The (id ...) after each item is its exact meal_id for the delete_meal tool if the client ever asks to remove one — never show these ids to the client, they're only for you."
       : "Nothing logged yet today — no need to mention this unless it's relevant.";
     const me = COACHES.nutrition.short;
     const other = COACHES.gym.short;
@@ -1499,12 +1504,15 @@ function coachSystemParts(coachId) {
         "ALWAYS write your own short, clean name for the description field — just the food items themselves (e.g. \"Eggs, cheese, toast, butter\"), roughly 3-8 words. Strip out everything else: the client's own phrasing, restated calories/macros, brand names, hedging, photo references. Never paste their raw wording or a long/rambling description into it, no matter how detailed their message was. " +
         "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
         "Never claim you logged something without calling the tool. " +
+        "\n- MEAL DELETION: you also have a delete_meal tool. Use it ONLY when the client clearly asks to remove, delete, or undo a specific entry from today's log — never on your own initiative, and never if you're not sure which entry they mean (ask them to clarify instead of guessing). " +
+        "Match what they describe against the LOGGED SO FAR TODAY list and pass that entry's exact meal_id (shown in parentheses next to it) — never invent an id or use the food name as the id. " +
+        "After deleting, confirm in one short sentence with the updated totals. Never claim you deleted something without calling the tool. " +
         "\n- VISIBILITY: you CAN see the client's food log. Every message you receive includes a LOGGED SO FAR TODAY section listing everything eaten today with running totals — " +
         "including meals the client logged themselves on the home screen, not just ones you logged. " +
         "When the client asks what they've eaten, what's in their tracker, or what's left today, answer straight from that section with the item names and numbers. " +
         "Never say you can't see the log or the dashboard — you can." +
-        "\n- QUOTING TOTALS: the LOGGED SO FAR TODAY section and the log_meal tool result are the ONLY sources of truth for today's numbers. " +
-        "The tool result reports exact running totals after every log. Quote those numbers verbatim — never estimate, recompute, round, or add them up yourself. " +
+        "\n- QUOTING TOTALS: the LOGGED SO FAR TODAY section and the log_meal/delete_meal tool results are the ONLY sources of truth for today's numbers. " +
+        "Both tools report exact running totals after every log or delete. Quote those numbers verbatim — never estimate, recompute, round, or add them up yourself. " +
         "If the numbers aren't in front of you, say what you see in the log instead of guessing.",
       memory: memoryBlockFor("nutrition"),
       dynamic,
@@ -1589,7 +1597,7 @@ async function callClaude(coachId, alreadyRemembered) {
     targets: { calories: state.profile.calories, protein: state.profile.protein },
   });
   const data = res.data || {};
-  if (data.mealLogged) {
+  if (data.mealLogged || data.mealDeleted) {
     await loadMeals();
     renderMealTotals();
     renderFoodHeatmap();
@@ -1599,7 +1607,14 @@ async function callClaude(coachId, alreadyRemembered) {
     if (!arr.some((f) => f.toLowerCase() === String(data.remembered).toLowerCase())) arr.push(data.remembered);
   }
   if (!data.text) throw new Error("Coach returned an empty response");
-  return { text: data.text, action: data.mealLogged || null };
+  return {
+    text: data.text,
+    action: data.mealLogged
+      ? { type: "logged", summary: data.mealLogged }
+      : data.mealDeleted
+      ? { type: "deleted", summary: data.mealDeleted }
+      : null,
+  };
 }
 
 /* ---------- voice (Deepgram nova-3 STT; ElevenLabs TTS, Aura-2 fallback — all via voiceCall) ---------- */

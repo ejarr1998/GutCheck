@@ -79,6 +79,18 @@ const MAYA_TOOLS = [{
     },
     required: ["description", "calories", "protein"],
   },
+}, {
+  name: "delete_meal",
+  description:
+    "Delete a meal entry from the client's daily tracker. Use ONLY when the client clearly asks to remove, delete, or undo something logged today — never delete without being explicitly asked, and never guess which entry they mean. " +
+    "The exact id for each entry is given to you in the LOGGED SO FAR TODAY section of your instructions, right next to its name — use that id, not the food name.",
+  input_schema: {
+    type: "object",
+    properties: {
+      meal_id: { type: "string", description: "The exact id of the meal entry to delete, copied from the LOGGED SO FAR TODAY list." },
+    },
+    required: ["meal_id"],
+  },
 }];
 
 // Available to both coaches — a durable fact that should survive the client
@@ -121,6 +133,7 @@ function dayKey(iso) {
 // Executes one tool_use block from Maya. Writes under users/{uid}/meals and
 // returns a confirmation (with today's totals) or a rejection she can react to.
 async function runMayaTool(uid, name, input, targets) {
+  if (name === "delete_meal") return runDeleteMealTool(uid, input, targets);
   if (name !== "log_meal") return "Unknown tool: " + name;
   const cal = Math.round(Number(input.calories));
   const pro = Math.round(Number(input.protein));
@@ -151,6 +164,36 @@ async function runMayaTool(uid, name, input, targets) {
   const tCal = (targets && targets.calories) || "?";
   const tPro = (targets && targets.protein) || "?";
   return "Logged: " + entry.description + " (" + cal + " kcal, " + pro + "g protein). " +
+    "Today's totals are now " + Math.round(calSoFar) + " kcal and " + Math.round(proSoFar) +
+    "g protein against targets of " + tCal + " kcal and " + tPro + "g.";
+}
+
+async function runDeleteMealTool(uid, input, targets) {
+  const id = String(input.meal_id || "").trim();
+  if (!id) return "Rejected: no meal_id given — use the exact id from the LOGGED SO FAR TODAY list, not the food name.";
+  const ref = db.doc(`users/${uid}/meals/${id}`);
+  let snap;
+  try {
+    snap = await ref.get();
+  } catch (e) {
+    return "Rejected: couldn't look up that meal (" + e.message + ").";
+  }
+  if (!snap.exists) return "Rejected: that meal entry no longer exists — it may have already been removed.";
+  const removed = snap.data();
+  await ref.delete();
+  const today = dayKey(removed.loggedAt || new Date().toISOString());
+  const all = await db.collection(`users/${uid}/meals`).get();
+  let calSoFar = 0, proSoFar = 0;
+  all.forEach((d) => {
+    const m = d.data();
+    if (dayKey(m.loggedAt) === today) {
+      calSoFar += m.calories || 0;
+      proSoFar += m.protein || 0;
+    }
+  });
+  const tCal = (targets && targets.calories) || "?";
+  const tPro = (targets && targets.protein) || "?";
+  return "Deleted: " + (removed.description || "that meal") + " (" + (removed.calories || 0) + " kcal, " + (removed.protein || 0) + "g protein). " +
     "Today's totals are now " + Math.round(calSoFar) + " kcal and " + Math.round(proSoFar) +
     "g protein against targets of " + tCal + " kcal and " + tPro + "g.";
 }
@@ -248,6 +291,7 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
   }
 
   let mealLogged = null; // summary string when log_meal fired, else null
+  let mealDeleted = null; // summary string when delete_meal fired, else null
   let remembered = null;
   let lastText = "";
   let retriedEmpty = false;
@@ -270,7 +314,7 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
         history = stripOldImages(history).slice(-24);
         continue;
       }
-      return { text: lastText || "", mealLogged, remembered };
+      return { text: lastText || "", mealLogged, mealDeleted, remembered };
     }
     // execute every tool call in this turn, then feed the results back
     history.push({ role: "assistant", content: blocks });
@@ -289,6 +333,8 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
             // e.g. "Panko chicken (410 kcal, 21g protein)" — shown client-side
             // as a visible "action taken" chip so a claimed log is provable
             mealLogged = String(out).split(". ")[0].replace("Logged: ", "");
+          } else if (String(out).startsWith("Deleted:")) {
+            mealDeleted = String(out).split(". ")[0].replace("Deleted: ", "");
           }
         }
       } catch (e) {
@@ -299,7 +345,7 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
     history.push({ role: "user", content: results });
   }
   // hit the round cap — the tool calls still happened, so tell the user what changed
-  return { text: lastText || "Done — check Today's fuel on the Home tab for what I logged.", mealLogged, remembered };
+  return { text: lastText || "Done — check Today's fuel on the Home tab for what I logged.", mealLogged, mealDeleted, remembered };
 });
 
 /* ---------- voiceCall: Deepgram STT (nova-3) + ElevenLabs/Aura-2 TTS ---------- */
