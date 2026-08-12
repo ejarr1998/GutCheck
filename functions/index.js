@@ -197,6 +197,29 @@ exports.coachCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => 
   }
   const history = messages.slice(-30);
 
+  // Cache breakpoint on the conversation tail: without this, the entire
+  // history gets rebilled as fresh input tokens on every single turn, which
+  // is the biggest cost driver in a growing chat (and includes any photos
+  // sitting in there). Marking the last message here writes everything up
+  // through it to cache; next turn's call resends this exact prefix plus one
+  // new exchange, so all of it reads back at ~10% price instead of full
+  // price. This also solves the "old photo rebilled every turn" problem as a
+  // side effect — once an image is inside the cached prefix, repeat reads of
+  // it are cheap, so stripping images out separately would actively work
+  // against this (any edit to an older message breaks the cache prefix
+  // right at that point), for a smaller savings than just letting it cache.
+  if (history.length) {
+    const lastMsg = history[history.length - 1];
+    const blocks = Array.isArray(lastMsg.content)
+      ? lastMsg.content.slice()
+      : [{ type: "text", text: String(lastMsg.content == null ? "" : lastMsg.content) }];
+    if (blocks.length) {
+      const lastBlock = Object.assign({}, blocks[blocks.length - 1], { cache_control: { type: "ephemeral", ttl: "1h" } });
+      blocks[blocks.length - 1] = lastBlock;
+      history[history.length - 1] = Object.assign({}, lastMsg, { content: blocks });
+    }
+  }
+
   const tools = [];
   if (useTools) {
     tools.push(REMEMBER_TOOL);
