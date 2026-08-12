@@ -715,17 +715,21 @@ async function saveMealEntry() {
 }
 
 // Promise-based "are you sure?" dialog — blocks accidental one-tap deletes.
-function confirmAction(msg) {
+function confirmAction(msg, yesLabel, noLabel) {
   return new Promise((resolve) => {
     const gate = $("#confirmGate");
     $("#confirmMsg").textContent = msg;
     gate.hidden = false;
     const yes = $("#confirmYes");
     const no = $("#confirmNo");
+    yes.textContent = yesLabel || "Delete";
+    no.textContent = noLabel || "Keep it";
     const done = (val) => {
       gate.hidden = true;
       yes.onclick = null;
       no.onclick = null;
+      yes.textContent = "Delete";
+      no.textContent = "Keep it";
       resolve(val);
     };
     yes.onclick = () => done(true);
