@@ -1459,6 +1459,7 @@ function coachSystemParts(coachId) {
     "\n- Background: " + p.context +
     "\n\nRULES:\n- Be direct, warm, and practical. Short paragraphs. No fluff." +
     "\n- PLAIN TEXT ONLY: never use asterisks, markdown, em-dashes as decoration, bullet symbols, or role-play actions (no *smiles*, no **bold**). " +
+    "This applies even when correcting yourself, apologizing, or emphasizing an important number — say it plainly with word choice and sentence structure, never with bold/asterisk markup, no matter how much you want to underline the point. " +
     "Your replies are read aloud by a text-to-speech voice — write exactly how a real human coach would speak. " +
     "Lists are fine as short separate lines starting with a number, like \"1. \"." +
     "\n- Give specific numbers, portions, sets, and reps — never vague advice." +
@@ -2414,6 +2415,21 @@ async function saveCoachMemoryFact(coachId, fact) {
   return true;
 }
 
+// Belt-and-suspenders against the coach ignoring the "no markdown" system
+// prompt rule under emphasis/urgency (e.g. correcting itself, highlighting a
+// number) — strips markdown bold/italic/header syntax before it's stored or
+// spoken, so it can never show up as literal asterisks in the chat or get
+// read aloud oddly by TTS, regardless of what the model actually generated.
+function stripMarkdownArtifacts(text) {
+  if (!text) return text;
+  return text
+    .replace(/\*\*(.+?)\*\*/gs, "$1")
+    .replace(/__(.+?)__/gs, "$1")
+    .replace(/(^|\s)\*(\S(?:.*?\S)?)\*(?=\s|$)/gs, "$1$2")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*{2,}/g, "");
+}
+
 async function sendCoachMessage(coachId, text) {
   if (state.sending[coachId]) return;
   const img = state.attach[coachId] || null;
@@ -2453,7 +2469,7 @@ async function sendCoachMessage(coachId, text) {
   let reply, replyAction = null;
   try {
     const result = await callClaude(coachId, rememberedSaved ? rememberFact : null);
-    reply = result.text;
+    reply = stripMarkdownArtifacts(result.text);
     replyAction = result.action;
   } catch (e) {
     reply = "Hmm, my brain hiccuped: " + e.message + ". Check the API key in Settings and try again.";
