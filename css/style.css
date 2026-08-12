@@ -533,6 +533,7 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
 
 /* ---------- keyboard-aware input (visualViewport) ---------- */
 body.kbd-open .chat-input-bar { bottom: calc(var(--kbd, 0px) + 4px); }
+body.kbd-open #socialConvo .convo-input { bottom: calc(var(--kbd, 0px) + 4px); }
 body.kbd-open .tabbar { display: none; }
 
 /* ---------- launch splash ---------- */
@@ -596,6 +597,7 @@ body.kbd-open .tabbar { display: none; }
   main { padding-top: 28px; }
   .photo-grid { grid-template-columns: repeat(4, 1fr); }
   .chat-input-bar { bottom: 70px; }
+  #socialConvo .convo-input { bottom: 70px; }
 }
 
 /* ==================== SOCIAL ==================== */
@@ -752,9 +754,8 @@ body.kbd-open .tabbar { display: none; }
   display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
 }
 .convo-name { flex: 1; font-weight: 700; font-size: 15px; }
-#socialConvo { display: flex; flex-direction: column; height: calc(100dvh - 190px); }
+#socialConvo { display: flex; flex-direction: column; }
 .convo-scroll {
-  flex: 1; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 10px;
 }
 .convo-day {
@@ -776,6 +777,11 @@ body.kbd-open .tabbar { display: none; }
 .bubble-text { font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble-time { font-size: 10px; opacity: .65; align-self: flex-end; }
 .convo-input { display: flex; gap: 8px; margin-top: 10px; }
+#socialConvo .convo-input {
+  position: sticky; bottom: 64px;
+  background: rgba(12,14,9,.95); backdrop-filter: blur(8px);
+  padding: 10px 0 6px; border-top: 1px solid var(--border);
+}
 .convo-input input {
   flex: 1; background: var(--card2); border: 1px solid var(--border); color: var(--text);
   border-radius: 999px; padding: 10px 16px; font: inherit; font-size: 14px;

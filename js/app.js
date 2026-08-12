@@ -319,6 +319,7 @@ function syncFsBtn() {
 const TABS = ["dashboard", "photos", "nutrition", "gym", "social", "settings"];
 function go(tab) {
   state.tab = tab;
+  try { localStorage.setItem("gutcheckTab", tab); } catch (e) { /* private browsing — just won't persist */ }
   stopSpeaking();
   TABS.forEach((t) => { $("#panel-" + t).hidden = t !== tab; });
   document.querySelectorAll(".tab-btn").forEach((b) => {
@@ -3087,6 +3088,11 @@ async function startApp() {
   // Brand-new accounts (and Ethan post-migration, once) get the guided setup.
   if (!state.hasProfileDoc || !state.profile.onboarded) openOnboarding();
   if (window.socialBoot) socialBoot();
+  // Refreshing the page shouldn't bounce back to Home — stay on whichever
+  // tab was open on this device last, if it's still a valid tab.
+  let savedTab = null;
+  try { savedTab = localStorage.getItem("gutcheckTab"); } catch (e) { /* noop */ }
+  if (savedTab && TABS.includes(savedTab) && savedTab !== state.tab) go(savedTab);
 }
 
 document.addEventListener("DOMContentLoaded", boot);

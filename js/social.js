@@ -115,6 +115,12 @@ async function socialBoot() {
   startMsgListener();
   socialCheckStreakCard();
   initPush();
+  // reloading shouldn't dump you back on the feed if you were mid-conversation
+  try {
+    const saved = JSON.parse(localStorage.getItem("gutcheckSocialView") || "null");
+    if (saved && saved.view === "convo" && saved.convoUid) openConvo(saved.convoUid);
+    else if (saved && saved.view && saved.view !== "convo") switchSocialView(saved.view);
+  } catch (e) { /* noop — just stays on the default feed view */ }
   if (!social.booted) {
     social.booted = true;
   }
@@ -688,7 +694,10 @@ function renderConvo() {
     bubble.appendChild(el("span", "bubble-time", new Date(m.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })));
     box.appendChild(bubble);
   });
-  box.scrollTop = box.scrollHeight;
+  // the convo list is part of the normal page flow now (like the coach chats),
+  // so scroll the page itself rather than a now-nonexistent inner scrollbox
+  if (box.lastElementChild) box.lastElementChild.scrollIntoView({ behavior: "auto", block: "end" });
+  else window.scrollTo({ top: document.documentElement.scrollHeight });
 }
 
 async function sendThreadMessage(toUid, text) {
@@ -884,6 +893,9 @@ function bindCrop() {
 function switchSocialView(view) {
   if (social.view === "convo" && view !== "convo") unsubscribeConvo();
   social.view = view;
+  try {
+    localStorage.setItem("gutcheckSocialView", JSON.stringify({ view, convoUid: view === "convo" ? social.convoUid : null }));
+  } catch (e) { /* private browsing — just won't persist */ }
   ["feed", "people", "messages", "convo"].forEach((v) => {
     const panel = { feed: "#socialFeed", people: "#socialPeople", messages: "#socialMessages", convo: "#socialConvo" }[v];
     $(panel).hidden = v !== view;
