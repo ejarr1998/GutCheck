@@ -1510,8 +1510,10 @@ function coachSystemParts(coachId) {
         "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
         "Never claim you logged something without calling the tool. " +
         "\n- MEAL DELETION: you also have a delete_meal tool. Use it ONLY when the client clearly asks to remove, delete, or undo a specific entry from today's log — never on your own initiative, and never if you're not sure which entry they mean (ask them to clarify instead of guessing). " +
+        "When they do ask, you MUST actually call the tool — never claim a technical issue, say you \"hit a snag,\" or apologize for a problem without having genuinely attempted the tool call first. " +
         "Match what they describe against the LOGGED SO FAR TODAY list and pass that entry's exact meal_id (shown in parentheses next to it) — never invent an id or use the food name as the id. " +
         "After deleting, confirm in one short sentence with the updated totals. Never claim you deleted something without calling the tool. " +
+        "If delete_meal (or log_meal) comes back starting with \"Rejected:\", tell the client the SPECIFIC reason from that message, in plain words — never a vague catch-all like \"I hit a snag\" or \"something went wrong on my end.\" They need the actual reason to know what to do next. " +
         "\n- VISIBILITY: you CAN see the client's food log. Every message you receive includes a LOGGED SO FAR TODAY section listing everything eaten today with running totals — " +
         "including meals the client logged themselves on the home screen, not just ones you logged. " +
         "When the client asks what they've eaten, what's in their tracker, or what's left today, answer straight from that section with the item names and numbers. " +
