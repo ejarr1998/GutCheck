@@ -1698,8 +1698,8 @@ function renderAvatarPreview() {
   const wrap = $("#avatarPreview");
   if (!wrap) return;
   while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
-  [["nutrition", "Maya"], ["gym", "Vanessa"]].forEach((pair) => {
-    const c = pair[0], label = pair[1];
+  ["nutrition", "gym"].forEach((c) => {
+    const label = COACHES[c].short; // reflects whichever gender/persona is currently active
     const box = el("div", "ap");
     if (AVATARS[c]) {
       const img = document.createElement("img");
@@ -1740,6 +1740,22 @@ const GROK_PROMPTS = {
   dre: "Professional headshot portrait of an attractive athletic man in his late 20s, a confident personal trainer, short fade haircut, black fitted athletic t-shirt, determined friendly smirk, soft gym lighting, dark charcoal background with a subtle lime-green rim light, head-and-shoulders, photorealistic",
 };
 
+// The prompts above are fixed strings, so sending the exact same one every time
+// tends to make the image model converge on a very similar face each regen.
+// Append a randomized (but style-consistent) variation so repeats actually differ.
+const AVATAR_VARIATIONS = {
+  hair: ["short brown hair", "dark wavy hair", "hair pulled back in a low bun", "black hair", "sandy blonde hair", "short curly hair", "shoulder-length chestnut hair", "buzzed fade haircut"],
+  skin: ["olive skin tone", "deep brown skin tone", "fair skin tone", "warm tan skin tone", "medium brown skin tone", "light brown skin tone"],
+  detail: ["a subtle smile line", "light stubble", "freckles across the nose", "a small silver stud earring", "naturally arched eyebrows", "a faint dimple when smiling", "high cheekbones"],
+};
+function randomAvatarVariant() {
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  return pick(AVATAR_VARIATIONS.hair) + ", " + pick(AVATAR_VARIATIONS.skin) + ", " + pick(AVATAR_VARIATIONS.detail);
+}
+function buildAvatarPrompt(persona) {
+  return GROK_PROMPTS[persona] + ", " + randomAvatarVariant();
+}
+
 async function regenerateAvatars() {
   const btn = $("#regenAvatars");
   btn.disabled = true;
@@ -1751,7 +1767,7 @@ async function regenerateAvatars() {
     for (let i = 0; i < jobs.length; i++) {
       const who = jobs[i][0], coachId = jobs[i][1];
       btn.textContent = "⏳ Generating " + COACHES[coachId].short + "… (~30s)";
-      const res = await fns.httpsCallable("avatarCall")({ prompt: GROK_PROMPTS[who] });
+      const res = await fns.httpsCallable("avatarCall")({ prompt: buildAvatarPrompt(who) });
       const b64 = res.data && res.data.imageBase64;
       if (!b64) throw new Error("Avatar server returned no image data");
       const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
@@ -2477,7 +2493,7 @@ async function ensureAllAvatarsGenerating() {
   const failures = [];
   await Promise.allSettled(missing.map(async (persona) => {
     try {
-      const res = await fns.httpsCallable("avatarCall")({ prompt: GROK_PROMPTS[persona] });
+      const res = await fns.httpsCallable("avatarCall")({ prompt: buildAvatarPrompt(persona) });
       const b64 = res.data && res.data.imageBase64;
       if (!b64) throw new Error("no image data");
       const small = await downscaleDataUrl("data:image/jpeg;base64," + b64, 512, 0.85);
