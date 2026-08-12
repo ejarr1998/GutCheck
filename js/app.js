@@ -147,6 +147,7 @@ const state = {
   tab: "dashboard",
   uid: null,        // Firebase Auth uid — scopes every Firestore path
   userEmail: null,
+  userPhone: null,
   hasProfileDoc: false, // false = brand-new account (no profile written yet)
   profile: { ...DEFAULT_PROFILE },
   weights: [], // {id, weight, loggedAt}
@@ -2355,7 +2356,7 @@ function renderSettings() {
   $("#s_genderNutrition").value = g.nutrition || "female";
   $("#s_genderGym").value = g.gym || "female";
   const acct = $("#accountEmail");
-  if (acct) acct.textContent = state.userEmail || "unknown";
+  if (acct) acct.textContent = state.userEmail || state.userPhone || "unknown";
   const babyRow = $("#babyDueRow");
   if (babyRow) babyRow.hidden = String(state.userEmail || "").toLowerCase() !== ADMIN_EMAIL;
   renderAvatarPreview();
@@ -2679,6 +2680,86 @@ async function signInWithGoogle() {
 
 async function signOut() {
   try { await auth.signOut(); } catch (e) { toast("Sign-out failed: " + e.message, true); }
+  resetPhoneAuthStep();
+}
+
+/* ---------- phone sign-in (Firebase invisible reCAPTCHA + SMS code) ---------- */
+let recaptchaVerifier = null;
+let phoneConfirmationResult = null;
+
+function ensureRecaptcha() {
+  if (recaptchaVerifier) return recaptchaVerifier;
+  recaptchaVerifier = new firebase.auth.RecaptchaVerifier("recaptchaContainer", { size: "invisible" });
+  return recaptchaVerifier;
+}
+
+// Best-effort normalize to E.164 — assumes US (+1) for a bare 10-digit number,
+// otherwise requires the person to include their country code with a leading +.
+function normalizePhone(raw) {
+  const digits = String(raw || "").replace(/[^\d+]/g, "");
+  if (digits.startsWith("+")) return digits;
+  if (digits.length === 10) return "+1" + digits;
+  return digits ? "+" + digits : "";
+}
+
+async function sendPhoneCode() {
+  const errBox = $("#authGateErr");
+  if (errBox) errBox.hidden = true;
+  const phone = normalizePhone($("#phoneInput").value);
+  if (!phone || phone.length < 8) {
+    showAuthGate("Enter a valid phone number with country code, e.g. +1 555 123 4567.");
+    return;
+  }
+  const btn = $("#phoneSendCodeBtn");
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "Sending…";
+  try {
+    const verifier = ensureRecaptcha();
+    phoneConfirmationResult = await auth.signInWithPhoneNumber(phone, verifier);
+    $("#phoneAuthNumber").textContent = phone;
+    $("#phoneAuthStep1").hidden = true;
+    $("#phoneAuthStep2").hidden = false;
+    $("#phoneCodeInput").focus();
+  } catch (e) {
+    showAuthGate("Couldn't send code: " + (e.message || e.code || "unknown error"));
+    // the widget is single-use — drop it so a retry gets a fresh one
+    try { recaptchaVerifier.clear(); } catch (e2) { /* noop */ }
+    recaptchaVerifier = null;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+async function verifyPhoneCode() {
+  const errBox = $("#authGateErr");
+  if (errBox) errBox.hidden = true;
+  const code = $("#phoneCodeInput").value.trim();
+  if (!code) { showAuthGate("Enter the code you received."); return; }
+  if (!phoneConfirmationResult) { showAuthGate("That session expired — request a new code."); return; }
+  const btn = $("#phoneVerifyBtn");
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "Verifying…";
+  try {
+    await phoneConfirmationResult.confirm(code);
+    // onAuthStateChanged (in boot()) takes it from here
+  } catch (e) {
+    showAuthGate("That code didn't work: " + (e.message || e.code || "unknown error"));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function resetPhoneAuthStep() {
+  const err = $("#authGateErr");
+  if (err) err.hidden = true;
+  $("#phoneAuthStep1").hidden = false;
+  $("#phoneAuthStep2").hidden = true;
+  $("#phoneCodeInput").value = "";
+  phoneConfirmationResult = null;
 }
 
 /* ---------- one-time legacy migration (flat collections → users/{uid}/) ---------- */
@@ -2863,6 +2944,11 @@ function wireEvents() {
   $("#saveProfile").addEventListener("click", onSaveProfile);
   $("#signOutBtn").addEventListener("click", signOut);
   $("#googleSignInBtn").addEventListener("click", signInWithGoogle);
+  $("#phoneSendCodeBtn").addEventListener("click", sendPhoneCode);
+  $("#phoneVerifyBtn").addEventListener("click", verifyPhoneCode);
+  $("#phoneBackBtn").addEventListener("click", resetPhoneAuthStep);
+  $("#phoneCodeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") verifyPhoneCode(); });
+  $("#phoneInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPhoneCode(); });
   $("#onboardSave").addEventListener("click", saveOnboarding);
   $("#obContinue").addEventListener("click", advanceToStep2);
   $("#obBack").addEventListener("click", backToStep1);
@@ -2929,12 +3015,14 @@ async function boot() {
       started = false;
       state.uid = null;
       state.userEmail = null;
+      state.userPhone = null;
       if (wasStarted) { location.reload(); return; } // clean state for the next sign-in
       showAuthGate();
       return;
     }
     state.uid = user.uid;
     state.userEmail = user.email || null;
+    state.userPhone = user.phoneNumber || null;
     if (started) return; // token refresh re-fires this — don't reload the app
     started = true;
     try {

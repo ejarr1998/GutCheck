@@ -30,8 +30,24 @@
 <div id="authGate" class="auth-gate" hidden>
   <div class="auth-card">
     <div class="auth-word">GutCheck</div>
-    <p class="auth-tag">Private training &amp; nutrition, one account each.<br>Sign in with your Google account to start.</p>
+    <p class="auth-tag">Private training &amp; nutrition, one account each.<br>Sign in to start.</p>
     <button class="btn big" id="googleSignInBtn">🔑 Sign in with Google</button>
+
+    <div class="auth-divider"><span>or</span></div>
+
+    <div id="phoneAuthStep1">
+      <input type="tel" class="auth-input" id="phoneInput" placeholder="+1 555 123 4567" autocomplete="tel">
+      <button class="btn ghost big" id="phoneSendCodeBtn">📱 Continue with phone</button>
+    </div>
+
+    <div id="phoneAuthStep2" hidden>
+      <p class="auth-tag">Enter the code sent to <b id="phoneAuthNumber"></b></p>
+      <input type="text" class="auth-input" id="phoneCodeInput" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      <button class="btn big" id="phoneVerifyBtn">Verify &amp; sign in</button>
+      <button class="link-btn center-btn" type="button" id="phoneBackBtn">Use a different number</button>
+    </div>
+
+    <div id="recaptchaContainer"></div>
     <p class="auth-err" id="authGateErr" hidden></p>
   </div>
 </div>
