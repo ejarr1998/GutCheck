@@ -650,7 +650,7 @@ function renderComposerAvatars() {
   });
 }
 
-async function uploadAvatar() {
+function uploadAvatar() {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -659,7 +659,91 @@ async function uploadAvatar() {
     if (!f) return;
     try {
       const data = await compressForFirestore(f);
-      const thumb = await downscaleDataUrl(data, 128, 0.8);
+      openAvatarCrop(data);
+    } catch (err) { toast("Could not read photo: " + err.message, true); }
+  });
+  input.click();
+}
+
+/* ---------- avatar crop (square, drag to pan, slider to zoom) ---------- */
+const CROP_FRAME = 260; // css px square viewport
+const CROP_OUT = 320;   // output px — 2.5x the old 128 thumb, still tiny data
+let crop = null;        // {img, scale, minScale, x, y}
+
+function openAvatarCrop(dataUrl) {
+  const img = new Image();
+  img.onload = () => {
+    const minScale = Math.max(CROP_FRAME / img.width, CROP_FRAME / img.height);
+    crop = {
+      img, minScale, scale: minScale,
+      x: (CROP_FRAME - img.width * minScale) / 2,
+      y: (CROP_FRAME - img.height * minScale) / 2,
+    };
+    $("#cropZoom").value = 1;
+    renderCrop();
+    $("#avatarCropSheet").hidden = false;
+  };
+  img.onerror = () => toast("Could not load that image", true);
+  img.src = dataUrl;
+}
+
+function clampCrop() {
+  const w = crop.img.width * crop.scale;
+  const h = crop.img.height * crop.scale;
+  crop.x = Math.min(0, Math.max(CROP_FRAME - w, crop.x));
+  crop.y = Math.min(0, Math.max(CROP_FRAME - h, crop.y));
+}
+
+function renderCrop() {
+  const el = $("#cropImg");
+  el.src = crop.img.src;
+  el.style.width = crop.img.width * crop.scale + "px";
+  el.style.height = crop.img.height * crop.scale + "px";
+  el.style.transform = "translate(" + crop.x + "px," + crop.y + "px)";
+}
+
+function bindCrop() {
+  const frame = $("#cropFrame");
+  let drag = null;
+  frame.addEventListener("pointerdown", (e) => {
+    if (!crop) return;
+    drag = { sx: e.clientX, sy: e.clientY, ox: crop.x, oy: crop.y };
+    frame.setPointerCapture(e.pointerId);
+  });
+  frame.addEventListener("pointermove", (e) => {
+    if (!drag || !crop) return;
+    crop.x = drag.ox + (e.clientX - drag.sx);
+    crop.y = drag.oy + (e.clientY - drag.sy);
+    clampCrop();
+    renderCrop();
+  });
+  ["pointerup", "pointercancel"].forEach((ev) => frame.addEventListener(ev, () => { drag = null; }));
+  $("#cropZoom").addEventListener("input", (e) => {
+    if (!crop) return;
+    // zoom around the frame center so the crop point stays put
+    const cx = CROP_FRAME / 2, cy = CROP_FRAME / 2;
+    const prev = crop.scale;
+    crop.scale = crop.minScale * parseFloat(e.target.value);
+    const k = crop.scale / prev;
+    crop.x = cx - (cx - crop.x) * k;
+    crop.y = cy - (cy - crop.y) * k;
+    clampCrop();
+    renderCrop();
+  });
+  const close = () => { $("#avatarCropSheet").hidden = true; crop = null; };
+  $("#cropCancel").addEventListener("click", close);
+  $("#cropCancelBtn").addEventListener("click", close);
+  $("#cropSave").addEventListener("click", async () => {
+    if (!crop) return;
+    const k = CROP_OUT / CROP_FRAME;
+    const canvas = document.createElement("canvas");
+    canvas.width = CROP_OUT;
+    canvas.height = CROP_OUT;
+    const cx2 = canvas.getContext("2d");
+    cx2.drawImage(crop.img, crop.x * k, crop.y * k, crop.img.width * crop.scale * k, crop.img.height * crop.scale * k);
+    const thumb = canvas.toDataURL("image/jpeg", 0.88);
+    close();
+    try {
       state.profile.avatar = thumb;
       await db.collection(ucol("settings")).doc("profile").set({ avatar: thumb }, { merge: true });
       localStorage.removeItem("socialDirSig"); // force directory re-sync
@@ -668,7 +752,6 @@ async function uploadAvatar() {
       toast("Profile picture updated");
     } catch (err) { toast("Couldn't save photo: " + err.message, true); }
   });
-  input.click();
 }
 
 /* ---------- view switching + wiring ---------- */
@@ -719,6 +802,7 @@ function bindSocialUI() {
   });
   const avBtn = $("#avatarUploadBtn");
   if (avBtn) avBtn.addEventListener("click", uploadAvatar);
+  bindCrop();
 }
 
 window.socialBoot = socialBoot;

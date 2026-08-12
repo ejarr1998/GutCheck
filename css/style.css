@@ -810,3 +810,15 @@ body.kbd-open .tabbar { display: none; }
 
 /* people rows: wrap actions under the text on narrow screens */
 .person-row { flex-wrap: wrap; }
+
+/* avatar crop sheet */
+.crop-card { padding-bottom: 18px; }
+.crop-frame {
+  width: 260px; height: 260px; margin: 14px auto 4px; position: relative;
+  overflow: hidden; border-radius: 14px; background: #000;
+  border: 1px solid var(--border); touch-action: none; cursor: grab;
+}
+.crop-frame:active { cursor: grabbing; }
+.crop-frame img { position: absolute; top: 0; left: 0; max-width: none; user-select: none; pointer-events: none; }
+#cropZoom { width: calc(100% - 48px); margin: 8px 24px 16px; accent-color: var(--lime); }
+.crop-btns { padding: 0 24px; }
