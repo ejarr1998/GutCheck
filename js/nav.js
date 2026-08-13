@@ -21,6 +21,11 @@
   let askingExit = false;
 
   window.__navDebug = () => stack.map((l) => l.type); // test hook
+  // Exposed so feature code can proactively keep the stack in sync when a
+  // layer closes itself (routine finishes, timer completes, etc.) instead of
+  // only through an on-screen close button — popLayerIf no-ops safely if the
+  // stack top isn't that type, so this is always safe to call.
+  window.__navPop = (type) => popLayerIf(type);
 
   function pushLayer(type, back) {
     stack.push({ type, back });
@@ -176,7 +181,10 @@
       });
     }
 
-    /* -- stretch hub: back closes it -- */
+    /* -- stretch hub: back closes it. The close button itself lives inside
+       stretch.js's own dynamically-built markup and calls window.__navPop
+       directly (see closeStretchHub), so there's nothing to wire up here
+       beyond registering what "back" should do. -- */
     const origOpenStretchHub = window.openStretchHub;
     if (typeof origOpenStretchHub === "function") {
       window.openStretchHub = function () {
@@ -187,11 +195,12 @@
         });
         return r;
       };
-      const hc = document.getElementById("stretchHubClose");
-      if (hc) hc.addEventListener("click", () => popLayerIf("stretchHub"));
     }
 
-    /* -- stretch session player: back ends the session -- */
+    /* -- stretch session player: back ends the session. Same story — the on-
+       screen close button runs its own confirm-then-end flow in stretch.js
+       (endSessionWithConfirm) which calls window.__navPop itself; wiring it
+       again here would fire a second, unconfirmed pop ahead of that dialog. -- */
     const origStartSession = window.startSession;
     if (typeof origStartSession === "function") {
       window.startSession = function () {
@@ -199,8 +208,6 @@
         pushLayer("stretchPlayer", () => { if (window.endSession) window.endSession(); });
         return r;
       };
-      const pc = document.getElementById("spClose");
-      if (pc) pc.addEventListener("click", () => popLayerIf("stretchPlayer"));
     }
   }
 

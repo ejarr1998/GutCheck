@@ -978,8 +978,13 @@ body.kbd-open #socialConvo .convo-input { bottom: calc(var(--kbd, 0px) + 4px); }
 }
 .stretch-cat-head { font-size: 14px; font-weight: 800; margin: 18px 0 2px; }
 .stretch-cat-head:first-of-type { margin-top: 0; }
-.stretch-cat-sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-.stretch-avoid-list { font-size: 13.5px; color: var(--muted); line-height: 1.7; padding-left: 18px; margin: 0 0 20px; }
+
+.stretch-filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.stretch-filter-chip {
+  background: var(--card2); border: 1px solid var(--border); color: var(--muted);
+  border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.stretch-filter-chip.on { background: var(--lime); color: var(--lime-dark); border-color: var(--lime); }
 
 .exercise-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -995,13 +1000,17 @@ body.kbd-open #socialConvo .convo-input { bottom: calc(var(--kbd, 0px) + 4px); }
 .exercise-card-text { flex: 1; min-width: 0; }
 .exercise-name { font-weight: 700; font-size: 14.5px; }
 .exercise-detail { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
+.exercise-meta-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.exercise-target-badge {
+  font-size: 10.5px; font-weight: 700; color: var(--text); background: var(--card2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
+}
 .exercise-badge {
-  display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 800; color: var(--lime);
+  font-size: 10.5px; font-weight: 800; color: var(--lime);
   background: rgba(163,230,53,.1); border: 1px solid rgba(163,230,53,.35); border-radius: 999px; padding: 2px 8px;
 }
-.exercise-search {
-  flex-shrink: 0; font-size: 17px; text-decoration: none; padding: 4px; margin-top: 2px;
-}
+.exercise-card-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
+.exercise-card-actions .icon-btn { font-size: 15px; padding: 4px; }
 
 .routine-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -1022,6 +1031,27 @@ body.kbd-open #socialConvo .convo-input { bottom: calc(var(--kbd, 0px) + 4px); }
   background: var(--card2); border: 1px solid var(--border); color: var(--text);
   border-radius: 999px; padding: 7px 13px; font-size: 12.5px; font-weight: 700; cursor: pointer;
 }
+.builder-chip.on { background: var(--lime); color: var(--lime-dark); border-color: var(--lime); }
+.builder-chip.dashed { border-style: dashed; color: var(--muted); }
+.builder-chip.dashed:hover { border-color: var(--lime); color: var(--lime); }
+
+/* exercise add/edit sheet fields */
+.ex-field { display: block; font-size: 12px; color: var(--muted); font-weight: 700; margin-bottom: 12px; }
+.ex-field input[type="text"], .ex-field textarea {
+  width: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--card2); color: var(--text); font-size: 14.5px; font-family: inherit;
+}
+.ex-field .stretch-tag-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+.ex-edit-row { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.ex-num { font-size: 11px; color: var(--muted); font-weight: 700; display: flex; flex-direction: column; gap: 4px; }
+.ex-num input {
+  width: 64px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card2); color: var(--text); font-size: 14px;
+}
+.btn.ghost.danger { color: var(--danger); border-color: rgba(239,68,68,.4); }
+.btn.ghost.danger:hover { background: rgba(239,68,68,.1); }
+.btn.ghost.on { border-color: var(--lime); color: var(--lime); }
+
 .builder-row {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px; margin-bottom: 8px;

@@ -615,18 +615,34 @@
 
 <script src="js/logo.js"></script>
 <script src="js/app.js"></script>
-  <div class="stretch-hub" id="stretchHub" hidden>
-    <div class="stretch-hub-head">
-      <div class="stretch-hub-title">🧘 Stretches</div>
-      <button class="icon-btn" type="button" id="stretchHubClose">✕</button>
+  <div class="picker" id="exerciseEditSheet" hidden>
+    <div class="picker-sheet">
+      <div class="picker-head">
+        <b id="exerciseEditTitle">Add exercise</b>
+        <button class="icon-btn" type="button" id="exerciseEditClose">✕</button>
+      </div>
+      <label class="ex-field">Name
+        <input type="text" id="exEditName" placeholder="e.g. Kneeling hip flexor stretch">
+      </label>
+      <label class="ex-field">Targets
+        <div class="stretch-tag-grid" id="exEditTags"></div>
+      </label>
+      <label class="ex-field">How to do it
+        <textarea id="exEditDetail" rows="3" placeholder="Instructions…"></textarea>
+      </label>
+      <div class="ex-edit-row">
+        <label class="ex-num">Seconds<input type="number" id="exEditSeconds" min="0" max="600"></label>
+        <label class="ex-num">Sets<input type="number" id="exEditSets" min="1" max="10"></label>
+        <button class="btn ghost sm" type="button" id="exEditPerSide">Per side: off</button>
+      </div>
+      <div class="row-form">
+        <button class="btn big" type="button" id="exEditSave">Save</button>
+        <button class="btn ghost danger" type="button" id="exEditDelete" hidden>Delete</button>
+      </div>
     </div>
-    <div class="stretch-tabs" id="stretchTabs">
-      <button class="stretch-tab on" type="button" data-stab="library">Library</button>
-      <button class="stretch-tab" type="button" data-stab="routines">Routines</button>
-      <button class="stretch-tab" type="button" data-stab="builder">Builder</button>
-    </div>
-    <div class="stretch-tab-body" id="stretchTabBody"></div>
   </div>
+
+  <div class="stretch-hub" id="stretchHub" hidden></div>
 
   <div class="stretch-player" id="stretchPlayer" hidden>
     <div class="sp-top">
