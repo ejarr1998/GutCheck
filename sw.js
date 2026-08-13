@@ -1,8 +1,8 @@
 /* GutCheck service worker — offline app shell + PWA installability.
    Same-origin GETs: network-first, cache as offline fallback.
    Cross-origin (Firebase, Anthropic, Deepgram, xAI): always network. */
-const CACHE = "gutcheck-v66";
-const SHELL = ["./", "index.html", "css/style.css", "js/app.js", "js/social.js", "js/nav.js", "js/logo.js", "manifest.json"];
+const CACHE = "gutcheck-v67";
+const SHELL = ["./", "index.html", "css/style.css", "js/app.js", "js/social.js", "js/nav.js", "js/stretch.js", "js/logo.js", "manifest.json"];
 
 /* ---------- push notifications (FCM background handler) ----------
    Fires when a push arrives while the app is backgrounded or fully closed —

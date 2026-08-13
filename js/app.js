@@ -1241,6 +1241,12 @@ function buildCoachPanel(coachId) {
   timerB.title = coachId === "gym" ? "Log workout" : "Kitchen timer";
   timerB.addEventListener("click", () => openTimerSheet(coachId));
   actions.appendChild(timerB);
+  if (coachId === "gym") {
+    const stretchB = el("button", "link-btn timer-btn", "🧘");
+    stretchB.title = "Stretches";
+    stretchB.addEventListener("click", () => { if (window.openStretchHub) window.openStretchHub(); });
+    actions.appendChild(stretchB);
+  }
   const reset = el("button", "link-btn", "↺ Reset");
   reset.addEventListener("click", () => clearChat(coachId));
   actions.appendChild(reset);

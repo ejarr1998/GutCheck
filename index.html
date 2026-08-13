@@ -615,7 +615,43 @@
 
 <script src="js/logo.js"></script>
 <script src="js/app.js"></script>
+  <div class="stretch-hub" id="stretchHub" hidden>
+    <div class="stretch-hub-head">
+      <div class="stretch-hub-title">🧘 Stretches</div>
+      <button class="icon-btn" type="button" id="stretchHubClose">✕</button>
+    </div>
+    <div class="stretch-tabs" id="stretchTabs">
+      <button class="stretch-tab on" type="button" data-stab="library">Library</button>
+      <button class="stretch-tab" type="button" data-stab="routines">Routines</button>
+      <button class="stretch-tab" type="button" data-stab="builder">Builder</button>
+    </div>
+    <div class="stretch-tab-body" id="stretchTabBody"></div>
+  </div>
+
+  <div class="stretch-player" id="stretchPlayer" hidden>
+    <div class="sp-top">
+      <div class="sp-progress"><div class="sp-progress-fill" id="spProgressFill"></div></div>
+      <button class="icon-btn" type="button" id="spClose">✕</button>
+    </div>
+    <div class="sp-body">
+      <div class="sp-set" id="spSet"></div>
+      <div class="sp-name" id="spName"></div>
+      <div class="sp-detail" id="spDetail"></div>
+      <div class="sp-timer" id="spTimer">0:30</div>
+      <div class="sp-timer-controls">
+        <button class="btn ghost" type="button" id="spRestart">↺ Restart</button>
+        <button class="btn big" type="button" id="spStartPause">▶ Start</button>
+      </div>
+    </div>
+    <div class="sp-nav">
+      <button class="btn ghost" type="button" id="spPrev">‹ Prev</button>
+      <div class="sp-nav-label" id="spNavLabel"></div>
+      <button class="btn ghost" type="button" id="spNext">Next ›</button>
+    </div>
+  </div>
+
 <script src="js/social.js"></script>
 <script src="js/nav.js"></script>
+<script src="js/stretch.js"></script>
 </body>
 </html>

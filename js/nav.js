@@ -175,6 +175,33 @@
         if (b) b.addEventListener("click", () => popLayerIf("photopick"));
       });
     }
+
+    /* -- stretch hub: back closes it -- */
+    const origOpenStretchHub = window.openStretchHub;
+    if (typeof origOpenStretchHub === "function") {
+      window.openStretchHub = function () {
+        const r = origOpenStretchHub.apply(this, arguments);
+        pushLayer("stretchHub", () => {
+          const s = document.getElementById("stretchHub");
+          if (s) s.hidden = true;
+        });
+        return r;
+      };
+      const hc = document.getElementById("stretchHubClose");
+      if (hc) hc.addEventListener("click", () => popLayerIf("stretchHub"));
+    }
+
+    /* -- stretch session player: back ends the session -- */
+    const origStartSession = window.startSession;
+    if (typeof origStartSession === "function") {
+      window.startSession = function () {
+        const r = origStartSession.apply(this, arguments);
+        pushLayer("stretchPlayer", () => { if (window.endSession) window.endSession(); });
+        return r;
+      };
+      const pc = document.getElementById("spClose");
+      if (pc) pc.addEventListener("click", () => popLayerIf("stretchPlayer"));
+    }
   }
 
   // social.js wires its own UI at DOMContentLoaded-ish time too, so bind
