@@ -708,6 +708,7 @@ async function saveMealEntry() {
     renderFoodHeatmap();
     toast("Meal logged");
     if (window.socialOnMealLogged) socialOnMealLogged();
+    if (window.checkSodaAutoPost) window.checkSodaAutoPost(entry.description);
   } catch (e) {
     toast("Save failed: " + e.message, true);
   } finally {
@@ -1609,6 +1610,7 @@ async function callClaude(coachId, alreadyRemembered) {
     renderMealTotals();
     renderFoodHeatmap();
   }
+  if (data.mealLogged && window.checkSodaAutoPost) window.checkSodaAutoPost(data.mealLogged);
   if (data.remembered) {
     const arr = (state.coachMemory[coachId] = state.coachMemory[coachId] || []);
     if (!arr.some((f) => f.toLowerCase() === String(data.remembered).toLowerCase())) arr.push(data.remembered);

@@ -430,9 +430,9 @@ function sodaOffenseCount() {
   return social.posts.filter((p) => p.type === "shame" && p.uid === state.uid && new Date(p.createdAt).getTime() >= weekAgo).length + 1;
 }
 
-async function postSodaShame() {
+async function postSodaShame(auto) {
   const btn = $("#sodaShameBtn");
-  if (btn) btn.disabled = true;
+  if (btn && !auto) btn.disabled = true;
   const line = SODA_SHAME_LINES[Math.floor(Math.random() * SODA_SHAME_LINES.length)];
   const count = sodaOffenseCount();
   const doc = {
@@ -445,12 +445,21 @@ async function postSodaShame() {
     const ref = await db.collection("posts").add(doc);
     social.posts.unshift({ id: ref.id, ...doc, comments: [], reactions: {} });
     renderFeed();
-    toast("🚨 Violation logged");
+    toast(auto ? "🚨 Soda detected — posted to the feed" : "🚨 Violation logged");
   } catch (e) {
     toast("Couldn't post: " + e.message, true);
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn && !auto) btn.disabled = false;
   }
+}
+
+// Catches a soda logged through any path — the nutritionist's log_meal tool
+// or the manual "Log meal" entry on the dashboard — and auto-posts the same
+// offense-report card the button does, no tap required.
+const SODA_WORDS = /\bsodas?\b|\bcokes?\b|\bpepsi\b|\bsprite\b|\bmountain\s*dew\b|\bdr\.?\s*pepper\b|\bfanta\b|\broot\s*beer\b|\bginger\s*ale\b/i;
+function checkSodaAutoPost(description) {
+  if (!description || !SODA_WORDS.test(description)) return;
+  postSodaShame(true);
 }
 
 async function socialAutoPost(kind, text) {
@@ -1127,7 +1136,7 @@ function bindSocialUI() {
   });
   $("#postPhotoBtn").addEventListener("click", pickPostPhoto);
   $("#postShareBtn").addEventListener("click", sharePost);
-  $("#sodaShameBtn").addEventListener("click", postSodaShame);
+  $("#sodaShameBtn").addEventListener("click", () => postSodaShame(false));
   $("#convoBack").addEventListener("click", () => switchSocialView("messages"));
   $("#convoForm").addEventListener("submit", (e) => { e.preventDefault(); sendConvo(); });
   $("#convoNudge").addEventListener("click", () => { if (social.convoUid) sendNudge(social.convoUid); });
@@ -1309,4 +1318,5 @@ window.socialBoot = socialBoot;
 window.socialSyncDirectory = socialSyncDirectory;
 window.socialOnMealLogged = socialOnMealLogged;
 window.socialOnWorkoutLogged = socialOnWorkoutLogged;
+window.checkSodaAutoPost = checkSodaAutoPost;
 window.renderPushToggle = renderPushToggle;
