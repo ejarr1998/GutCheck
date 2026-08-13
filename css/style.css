@@ -539,6 +539,10 @@ code { background: var(--card2); padding: 1px 6px; border-radius: 6px; font-size
   position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.72);
   display: flex; align-items: flex-end; justify-content: center;
 }
+/* These two sheets open ON TOP of the Stretches hub (z-index 202) — the
+   generic .picker z-index of 70 left them rendering invisibly behind it,
+   so tapping Edit/Smart-import appeared to do nothing at all. */
+#exerciseEditSheet, #smartImportSheet { z-index: 220; }
 .picker-sheet {
   background: var(--card); border: 1px solid var(--border); border-bottom: 0;
   border-radius: 18px 18px 0 0; width: 100%; max-width: 720px;
