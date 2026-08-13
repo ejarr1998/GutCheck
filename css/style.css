@@ -739,6 +739,10 @@ body.kbd-open .tabbar { display: none; }
 /* auto accomplishment card accent */
 .auto-post .post-actions { padding-bottom: 0; }
 
+/* soda shame — playful, distinct from the "GutCheck did this" auto badge */
+.shame-post .post-actions { padding-bottom: 0; }
+.shame-badge { color: #f59e0b; background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .3); }
+
 /* people */
 .person-row {
   display: flex; align-items: center; gap: 12px;

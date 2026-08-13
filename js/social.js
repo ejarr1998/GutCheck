@@ -176,7 +176,7 @@ function reactionCounts(post) {
 }
 
 function postCard(p) {
-  const card = el("article", "post" + (p.type === "auto" ? " auto-post" : ""));
+  const card = el("article", "post" + (p.type === "auto" ? " auto-post" : p.type === "shame" ? " shame-post" : ""));
   const name = p.name || personName(p.uid);
 
   // header
@@ -187,6 +187,7 @@ function postCard(p) {
   headText.appendChild(el("div", "post-time", timeAgo(p.createdAt)));
   head.appendChild(headText);
   if (p.type === "auto") head.appendChild(el("span", "post-badge", "⚡ GutCheck"));
+  if (p.type === "shame") head.appendChild(el("span", "post-badge shame-badge", "🥤 Confession"));
   if (p.uid === state.uid) {
     const del = el("button", "icon-btn post-del", "🗑");
     del.title = "Delete post";
@@ -215,8 +216,8 @@ function postCard(p) {
     card.appendChild(imgWrap);
   }
 
-  // body (auto card text or caption)
-  if (p.type === "auto") {
+  // body (auto/shame card text or caption)
+  if (p.type === "auto" || p.type === "shame") {
     card.appendChild(el("div", "post-auto-text", p.autoText || ""));
   } else if (p.caption) {
     const cap = el("div", "post-caption", p.caption);
@@ -390,7 +391,36 @@ async function sharePost() {
   }
 }
 
-/* ---------- auto accomplishment cards ---------- */
+/* ---------- soda shame (fun, one-tap confession post) ---------- */
+
+const SODA_SHAME_LINES = [
+  "cracked open a soda. The audacity.",
+  "just drank a soda. No regrets. Okay, some regrets.",
+  "chose fizz over fitness today.",
+  "caved. It was a soda. Judge away.",
+  "drank a soda in broad daylight.",
+  "is one soda closer to the goal — the wrong direction.",
+];
+
+async function postSodaShame() {
+  const btn = $("#sodaShameBtn");
+  if (btn) btn.disabled = true;
+  const line = SODA_SHAME_LINES[Math.floor(Math.random() * SODA_SHAME_LINES.length)];
+  const doc = {
+    uid: state.uid, name: myName(), avatar: (state.profile || {}).avatar || null,
+    type: "shame", autoText: myName() + " " + line, caption: "", createdAt: new Date().toISOString(),
+  };
+  try {
+    const ref = await db.collection("posts").add(doc);
+    social.posts.unshift({ id: ref.id, ...doc, comments: [], reactions: {} });
+    renderFeed();
+    toast("🥤 Confessed to the group");
+  } catch (e) {
+    toast("Couldn't post: " + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 async function socialAutoPost(kind, text) {
   try {
@@ -1066,6 +1096,7 @@ function bindSocialUI() {
   });
   $("#postPhotoBtn").addEventListener("click", pickPostPhoto);
   $("#postShareBtn").addEventListener("click", sharePost);
+  $("#sodaShameBtn").addEventListener("click", postSodaShame);
   $("#convoBack").addEventListener("click", () => switchSocialView("messages"));
   $("#convoForm").addEventListener("submit", (e) => { e.preventDefault(); sendConvo(); });
   $("#convoNudge").addEventListener("click", () => { if (social.convoUid) sendNudge(social.convoUid); });
