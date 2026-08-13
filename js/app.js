@@ -268,8 +268,14 @@ function fmtDateTime(iso) {
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
+// Day boundary is 3 AM, not midnight — so a late-night snack at 12:05 AM
+// still counts toward the day that's ending, not the new one. Shift the
+// timestamp back by the cutoff before reading out Y/M/D; everything from
+// 3:00 AM onward maps normally, everything before it falls back to the
+// previous calendar day.
+const DAY_CUTOFF_HOURS = 3;
 function dayKey(iso) {
-  const d = new Date(iso);
+  const d = new Date(new Date(iso).getTime() - DAY_CUTOFF_HOURS * 60 * 60 * 1000);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
@@ -469,6 +475,28 @@ function renderChart() {
   });
 }
 
+function promptEditWeight(current) {
+  return new Promise((resolve) => {
+    const gate = $("#weightEditGate");
+    const input = $("#weightEditInput");
+    input.value = current;
+    gate.hidden = false;
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+    const save = $("#weightEditSave");
+    const cancel = $("#weightEditCancel");
+    const done = (val) => {
+      gate.hidden = true;
+      save.onclick = null;
+      cancel.onclick = null;
+      input.onkeydown = null;
+      resolve(val);
+    };
+    save.onclick = () => done(parseFloat(input.value));
+    cancel.onclick = () => done(null);
+    input.onkeydown = (e) => { if (e.key === "Enter") done(parseFloat(input.value)); };
+  });
+}
+
 function renderWeightLog() {
   const wrap = $("#weightLog");
   while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
@@ -477,7 +505,19 @@ function renderWeightLog() {
     const row = el("div", "wrow");
     const left = el("span", null, fmtDayShort(w.loggedAt));
     const right = el("span");
-    const b = el("b", null, w.weight + " lbs");
+    const b = el("b", "editable-weight", w.weight + " lbs");
+    b.title = "Tap to edit";
+    b.addEventListener("click", async () => {
+      const newVal = await promptEditWeight(w.weight);
+      if (newVal === null || isNaN(newVal)) return;
+      if (newVal < 50 || newVal > 800) { toast("Enter a valid weight in lbs", true); return; }
+      try {
+        await db.collection(ucol("weights")).doc(w.id).set({ weight: newVal }, { merge: true });
+        w.weight = newVal;
+        renderDashboard();
+        toast("Weight updated");
+      } catch (e) { toast("Update failed: " + e.message, true); }
+    });
     const del = el("button", "del", "✕");
     del.title = "Delete entry";
     del.addEventListener("click", async () => {

@@ -125,8 +125,12 @@ async function runRememberTool(uid, coachId, fact) {
   return "Remembered.";
 }
 
+// Same 3 AM cutoff as the client (js/app.js's dayKey) — must match exactly
+// so the client's LOGGED SO FAR TODAY context and the server's own totals
+// after log_meal/delete_meal always agree on what "today" means.
+const DAY_CUTOFF_HOURS = 3;
 function dayKey(iso) {
-  const d = new Date(iso);
+  const d = new Date(new Date(iso).getTime() - DAY_CUTOFF_HOURS * 60 * 60 * 1000);
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 

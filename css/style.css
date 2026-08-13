@@ -215,6 +215,8 @@ main { max-width: 720px; margin: 0 auto; padding: 20px 16px 110px; }
   padding: 7px 2px; border-top: 1px solid var(--border); font-size: 13.5px;
 }
 .weight-log .wrow b { font-variant-numeric: tabular-nums; }
+.editable-weight { cursor: pointer; border-bottom: 1px dashed var(--muted); }
+.editable-weight:hover { color: var(--lime); border-color: var(--lime); }
 .weight-log .del { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; }
 .weight-log .del:hover { color: var(--danger); }
 
