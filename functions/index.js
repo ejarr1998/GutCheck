@@ -554,10 +554,26 @@ exports.parseExercisesCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (req
     tool_choice: { type: "tool", name: "extracted_exercises" },
   };
 
-  const data = await callAnthropic(ANTHROPIC_API_KEY.value(), body);
-  const block = (data.content || []).find((b) => b.type === "tool_use" && b.name === "extracted_exercises");
-  if (!block) throw new HttpsError("unavailable", "Couldn't extract any exercises from that text — try rephrasing or adding more detail.");
-  const exercises = Array.isArray(block.input.exercises) ? block.input.exercises.slice(0, 30) : [];
+  // Wrapped so ANY unexpected failure — not just the errors this function
+  // deliberately throws — comes back as a diagnosable message instead of
+  // Firebase's default behavior for uncaught exceptions in onCall: silently
+  // converting them to a bare, message-stripped "internal" error.
+  let data;
+  try {
+    data = await callAnthropic(ANTHROPIC_API_KEY.value(), body);
+  } catch (e) {
+    console.error("parseExercisesCall/callAnthropic failed:", e);
+    throw new HttpsError("unavailable", "Claude request failed: " + e.message);
+  }
+  let block, exercises;
+  try {
+    block = (data.content || []).find((b) => b.type === "tool_use" && b.name === "extracted_exercises");
+    if (!block) throw new Error("Model didn't return the extraction tool call. stop_reason=" + data.stop_reason);
+    exercises = Array.isArray(block.input.exercises) ? block.input.exercises.slice(0, 30) : [];
+  } catch (e) {
+    console.error("parseExercisesCall/parse failed:", e, JSON.stringify(data).slice(0, 500));
+    throw new HttpsError("unavailable", "Couldn't extract any exercises from that text — try rephrasing or adding more detail. (" + e.message + ")");
+  }
   return { exercises };
 });
 
