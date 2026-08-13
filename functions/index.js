@@ -207,15 +207,30 @@ async function runDeleteMealTool(uid, input, targets) {
 }
 
 async function callAnthropic(apiKey, body) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
+  // Wrapped end to end: fetch() itself can throw a plain (non-HttpsError)
+  // exception on a network failure — timeout, DNS blip, connection reset —
+  // and so can res.json() on a malformed response. Either one, uncaught,
+  // propagates straight through every caller (coachCall, parseExercisesCall)
+  // and out to Firebase's onCall wrapper, which silently converts any
+  // non-HttpsError exception into a bare, message-stripped "internal" error —
+  // the exact dead-end "INTERNAL" that's shown up in chat more than once.
+  // Catching everything here and re-throwing as a real HttpsError fixes it
+  // at the one shared place instead of chasing each caller individually.
+  let res;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.error("callAnthropic fetch failed:", e);
+    throw new HttpsError("unavailable", "Couldn't reach Claude: " + e.message);
+  }
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     // "internal" is one of only two HttpsError codes where Firebase strips
@@ -225,7 +240,12 @@ async function callAnthropic(apiKey, body) {
     // actually reaches the client the next time something goes wrong here.
     throw new HttpsError("unavailable", "Claude API " + res.status + ": " + t.slice(0, 200));
   }
-  return res.json();
+  try {
+    return await res.json();
+  } catch (e) {
+    console.error("callAnthropic response parse failed:", e);
+    throw new HttpsError("unavailable", "Claude returned something unreadable: " + e.message);
+  }
 }
 
 /* ---------- coachCall: Claude chat + Maya's tool loop ---------- */

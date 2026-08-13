@@ -2571,7 +2571,7 @@ async function sendCoachMessage(coachId, text) {
   // to claim this without calling the tool, but that's probabilistic; this
   // check is a hard, deterministic backstop based on what the server
   // actually reports happened, not what the text says happened.
-  const claimsLogAction = !replyAction && coachId === "nutrition" && /\b(already logged|just logged|logged now|now logged|logged (?:it|that|this)\b|log(?:ging)? it\b|added (?:it|that) to your (?:tracker|log)|removed (?:it|that) from your (?:tracker|log)|deleted (?:it|that))\b/i.test(reply || "");
+  const claimsLogAction = !replyAction && coachId === "nutrition" && /^\s*logged[,:]|\b(already logged|just logged|logged now|now logged|logged (?:it|that|this)\b|log(?:ging)? it\b|added (?:it|that) to your (?:tracker|log)|removed (?:it|that) from your (?:tracker|log)|deleted (?:it|that))\b/i.test(reply || "");
   const extra = {};
   if (replyAction) extra.action = replyAction;
   if (claimsLogAction) extra.unverifiedClaim = true;
