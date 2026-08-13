@@ -426,8 +426,13 @@ function offenseStatus(n) {
 // in social.posts right now — never a persisted counter — so deleting an old
 // soda post genuinely brings the number back down instead of only ever going up.
 function sodaOffenseCount() {
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return social.posts.filter((p) => p.type === "shame" && p.uid === state.uid && new Date(p.createdAt).getTime() >= weekAgo).length + 1;
+  try {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return (social.posts || []).filter((p) => p.type === "shame" && p.uid === state.uid && new Date(p.createdAt).getTime() >= weekAgo).length + 1;
+  } catch (e) {
+    console.error("sodaOffenseCount failed:", e);
+    return 1;
+  }
 }
 
 async function postSodaShame(auto) {
@@ -463,8 +468,14 @@ async function postSodaShame(auto) {
 // other if a brand name gets genericized before this ever sees it.
 const SODA_WORDS = /\bsodas?\b|\bcokes?\b|\bpepsi\b|\bsprite\b|\bmountain\s*dew\b|\bdr\.?\s*pepper\b|\bfanta\b|\broot\s*beer\b|\bginger\s*ale\b|\bcolas?\b|\bsoft\s*drinks?\b|\bcarbonated\s*(drinks?|beverages?)?\b|\bfizzy\s*drinks?\b|\bpop\b/i;
 function checkSodaAutoPost(description) {
-  if (!description || !SODA_WORDS.test(description)) return;
-  postSodaShame(true);
+  try {
+    console.log("checkSodaAutoPost:", JSON.stringify(description), "match=", !!(description && SODA_WORDS.test(description)));
+    if (!description || !SODA_WORDS.test(description)) return;
+    postSodaShame(true);
+  } catch (e) {
+    console.error("checkSodaAutoPost failed:", e);
+    toast("Soda auto-post check failed: " + e.message, true);
+  }
 }
 
 async function socialAutoPost(kind, text) {
