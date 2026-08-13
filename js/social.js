@@ -25,6 +25,24 @@ const social = {
 
 /* ---------- small helpers ---------- */
 
+// Stacks every known countermeasure against Android's system-level Autofill
+// service showing saved passwords/payment cards/addresses above the
+// keyboard for a plain text field. Removing the <form> ancestor (done
+// elsewhere) turned out necessary but not sufficient — this service can
+// trigger on a generic input based on its own heuristics regardless of
+// form-wrapping, and largely ignores autocomplete="off" on its own. name
+// randomized per render since the service partly keys suggestions off
+// recognizing a stable name/id it's seen offer-worthy data for before.
+function hardenAgainstAutofill(input, kind) {
+  input.type = "search"; // signals "not a data-entry field to remember", low risk side effect (native clear-x on some browsers)
+  input.autocomplete = "off";
+  input.setAttribute("name", (kind || "field") + "-" + Math.random().toString(36).slice(2, 8));
+  input.setAttribute("data-lpignore", "true"); // LastPass
+  input.setAttribute("data-1p-ignore", "true"); // 1Password
+  input.setAttribute("autocorrect", "on");
+  input.setAttribute("autocapitalize", "sentences");
+}
+
 function myName() {
   const p = state.profile || {};
   if (p.name) return p.name;
@@ -258,15 +276,16 @@ function postCard(p) {
     p.comments.slice(-2).forEach((c) => card.appendChild(commentLine(c, p)));
   }
 
-  // quick-add comment — plain div, not <form>: Android's system-level
-  // payment/password autofill strip is heuristically tied to <form>
-  // elements specifically, and largely ignores autocomplete="off" for that
-  // suggestion bar since it's driven by the OS Autofill Framework, not
-  // Chrome's own in-page autocomplete handling.
+  // quick-add comment — plain div, not <form>, but that alone wasn't
+  // enough (still seeing the payment/password/address icon row). Android's
+  // system-level Autofill service is separate from Chrome's own in-page
+  // autocomplete="off" handling and can trigger on a generic focused text
+  // input based on its own heuristics regardless of form-wrapping. Stacking
+  // every known countermeasure since no single one is reliably sufficient.
   const add = el("div", "post-addcomment");
   const input = document.createElement("input");
   input.placeholder = "Add a comment…";
-  input.autocomplete = "off";
+  hardenAgainstAutofill(input, "comment");
   const go = el("button", "post-addcomment-btn", "Post");
   go.type = "button";
   add.appendChild(input);
@@ -1154,9 +1173,12 @@ function bindSocialUI() {
   $("#postShareBtn").addEventListener("click", sharePost);
   $("#sodaShameBtn").addEventListener("click", () => postSodaShame(false));
   $("#convoBack").addEventListener("click", () => switchSocialView("messages"));
-  $("#convoForm").addEventListener("submit", (e) => { e.preventDefault(); sendConvo(); });
+  hardenAgainstAutofill($("#convoText"), "message");
+  $("#convoSendBtn").addEventListener("click", sendConvo);
+  $("#convoText").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendConvo(); } });
   $("#convoNudge").addEventListener("click", () => { if (social.convoUid) sendNudge(social.convoUid); });
   $("#commentClose").addEventListener("click", () => { $("#commentSheet").hidden = true; social.commentsFor = null; });
+  hardenAgainstAutofill($("#commentText"), "comment");
   const submitComment = async () => {
     const t = $("#commentText").value.trim();
     if (!t || !social.commentsFor) return;
