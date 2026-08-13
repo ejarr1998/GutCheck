@@ -187,7 +187,7 @@ function postCard(p) {
   headText.appendChild(el("div", "post-time", timeAgo(p.createdAt)));
   head.appendChild(headText);
   if (p.type === "auto") head.appendChild(el("span", "post-badge", "⚡ GutCheck"));
-  if (p.type === "shame") head.appendChild(el("span", "post-badge shame-badge", "🥤 Confession"));
+  if (p.type === "shame") head.appendChild(el("span", "post-badge shame-badge", "🚨 Violation"));
   if (p.uid === state.uid) {
     const del = el("button", "icon-btn post-del", "🗑");
     del.title = "Delete post";
@@ -216,8 +216,16 @@ function postCard(p) {
     card.appendChild(imgWrap);
   }
 
-  // body (auto/shame card text or caption)
-  if (p.type === "auto" || p.type === "shame") {
+  // body: shame posts get a mini "offense report" card, auto posts get a
+  // plain line, regular posts get their caption
+  if (p.type === "shame") {
+    const report = el("div", "shame-report");
+    report.appendChild(el("div", "shame-report-title", "🚨 SODA VIOLATION"));
+    report.appendChild(el("div", "shame-report-count", "Offense #" + (p.shameCount || 1) + " this week"));
+    report.appendChild(el("div", "shame-report-line", p.autoText || ""));
+    report.appendChild(el("div", "shame-report-status", "Status: " + (p.shameStatus || "First offense")));
+    card.appendChild(report);
+  } else if (p.type === "auto") {
     card.appendChild(el("div", "post-auto-text", p.autoText || ""));
   } else if (p.caption) {
     const cap = el("div", "post-caption", p.caption);
@@ -407,19 +415,37 @@ const SODA_SHAME_LINES = [
   "is one soda closer to the goal — the wrong direction.",
 ];
 
+function offenseStatus(n) {
+  if (n <= 1) return "First offense";
+  if (n === 2) return "Second offense";
+  if (n <= 4) return "Repeat offender";
+  return "This is becoming a pattern";
+}
+
+// Counts YOUR shame posts from the last 7 days out of what's actually still
+// in social.posts right now — never a persisted counter — so deleting an old
+// soda post genuinely brings the number back down instead of only ever going up.
+function sodaOffenseCount() {
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  return social.posts.filter((p) => p.type === "shame" && p.uid === state.uid && new Date(p.createdAt).getTime() >= weekAgo).length + 1;
+}
+
 async function postSodaShame() {
   const btn = $("#sodaShameBtn");
   if (btn) btn.disabled = true;
   const line = SODA_SHAME_LINES[Math.floor(Math.random() * SODA_SHAME_LINES.length)];
+  const count = sodaOffenseCount();
   const doc = {
     uid: state.uid, name: myName(), avatar: (state.profile || {}).avatar || null,
-    type: "shame", autoText: myName() + " " + line, caption: "", createdAt: new Date().toISOString(),
+    type: "shame", autoText: myName() + " " + line,
+    shameCount: count, shameStatus: offenseStatus(count),
+    caption: "", createdAt: new Date().toISOString(),
   };
   try {
     const ref = await db.collection("posts").add(doc);
     social.posts.unshift({ id: ref.id, ...doc, comments: [], reactions: {} });
     renderFeed();
-    toast("🥤 Confessed to the group");
+    toast("🚨 Violation logged");
   } catch (e) {
     toast("Couldn't post: " + e.message, true);
   } finally {

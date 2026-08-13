@@ -740,8 +740,24 @@ body.kbd-open .tabbar { display: none; }
 .auto-post .post-actions { padding-bottom: 0; }
 
 /* soda shame — playful, distinct from the "GutCheck did this" auto badge */
+.shame-post { border-color: rgba(245, 158, 11, .3); border-left: 3px solid #f59e0b; }
 .shame-post .post-actions { padding-bottom: 0; }
 .shame-badge { color: #f59e0b; background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .3); }
+.shame-report {
+  margin: 10px 14px 0; padding: 12px 14px; border-radius: 10px;
+  background: repeating-linear-gradient(135deg, rgba(245,158,11,.08) 0 10px, rgba(245,158,11,.03) 10px 20px);
+  border: 1px dashed rgba(245, 158, 11, .5);
+}
+.shame-report-title {
+  font-size: 13px; font-weight: 900; letter-spacing: .05em; color: #f59e0b;
+}
+.shame-report-count { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 3px; }
+.shame-report-line { font-size: 14.5px; font-weight: 600; color: var(--text); margin-top: 8px; line-height: 1.4; }
+.shame-report-status {
+  display: inline-block; margin-top: 9px; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .04em; color: #f59e0b; background: rgba(245, 158, 11, .14);
+  border: 1px solid rgba(245, 158, 11, .35); border-radius: 999px; padding: 3px 9px;
+}
 
 /* people */
 .person-row {
