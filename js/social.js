@@ -250,21 +250,26 @@ function postCard(p) {
     p.comments.slice(-2).forEach((c) => card.appendChild(commentLine(c, p)));
   }
 
-  // quick-add comment
-  const add = el("form", "post-addcomment");
+  // quick-add comment — plain div, not <form>: Android's system-level
+  // payment/password autofill strip is heuristically tied to <form>
+  // elements specifically, and largely ignores autocomplete="off" for that
+  // suggestion bar since it's driven by the OS Autofill Framework, not
+  // Chrome's own in-page autocomplete handling.
+  const add = el("div", "post-addcomment");
   const input = document.createElement("input");
   input.placeholder = "Add a comment…";
   input.autocomplete = "off";
   const go = el("button", "post-addcomment-btn", "Post");
-  go.type = "submit";
+  go.type = "button";
   add.appendChild(input);
   add.appendChild(go);
-  add.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  const submit = async () => {
     const t = input.value.trim();
     if (!t) return;
     if (await addComment(p.id, t)) input.value = "";
-  });
+  };
+  go.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
   card.appendChild(add);
 
   return card;
@@ -1101,12 +1106,13 @@ function bindSocialUI() {
   $("#convoForm").addEventListener("submit", (e) => { e.preventDefault(); sendConvo(); });
   $("#convoNudge").addEventListener("click", () => { if (social.convoUid) sendNudge(social.convoUid); });
   $("#commentClose").addEventListener("click", () => { $("#commentSheet").hidden = true; social.commentsFor = null; });
-  $("#commentForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
+  const submitComment = async () => {
     const t = $("#commentText").value.trim();
     if (!t || !social.commentsFor) return;
     if (await addComment(social.commentsFor, t)) $("#commentText").value = "";
-  });
+  };
+  $("#commentPostBtn").addEventListener("click", submitComment);
+  $("#commentText").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitComment(); } });
   const avBtn = $("#avatarUploadBtn");
   if (avBtn) avBtn.addEventListener("click", uploadAvatar);
   bindCrop();
