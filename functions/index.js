@@ -72,7 +72,7 @@ const MAYA_TOOLS = [{
     properties: {
       description: {
         type: "string",
-        description: "A short, clean name listing just the food items themselves (e.g. \"Eggs, cheese, toast, butter\"), roughly 3-8 words. Strip out everything else — the client's own phrasing, restated calories/macros, brand names, hedging, photo references. Never paste their raw message.",
+        description: "A short, clean name listing just the food items themselves (e.g. \"Eggs, cheese, toast, butter\"), roughly 3-8 words. Strip out everything else — the client's own phrasing, restated calories/macros, brand names, hedging, photo references. Exception: for sodas/soft drinks, keep the actual drink name (e.g. \"Dr Pepper\") rather than genericizing it. Never paste their raw message.",
       },
       calories: { type: "number", description: "Estimated total calories for the whole meal (integer)" },
       protein: { type: "number", description: "Estimated total grams of protein for the whole meal (integer)" },

@@ -456,7 +456,12 @@ async function postSodaShame(auto) {
 // Catches a soda logged through any path — the nutritionist's log_meal tool
 // or the manual "Log meal" entry on the dashboard — and auto-posts the same
 // offense-report card the button does, no tap required.
-const SODA_WORDS = /\bsodas?\b|\bcokes?\b|\bpepsi\b|\bsprite\b|\bmountain\s*dew\b|\bdr\.?\s*pepper\b|\bfanta\b|\broot\s*beer\b|\bginger\s*ale\b/i;
+// Named brands PLUS the generic categorical words the coach might use instead
+// after stripping a brand name per the log_meal naming rule (e.g. "Dr Pepper"
+// -> "Soda" or "Cola" or "Soft drink") — the brand-stripping and this
+// detection were built at different times and would otherwise fight each
+// other if a brand name gets genericized before this ever sees it.
+const SODA_WORDS = /\bsodas?\b|\bcokes?\b|\bpepsi\b|\bsprite\b|\bmountain\s*dew\b|\bdr\.?\s*pepper\b|\bfanta\b|\broot\s*beer\b|\bginger\s*ale\b|\bcolas?\b|\bsoft\s*drinks?\b|\bcarbonated\s*(drinks?|beverages?)?\b|\bfizzy\s*drinks?\b|\bpop\b/i;
 function checkSodaAutoPost(description) {
   if (!description || !SODA_WORDS.test(description)) return;
   postSodaShame(true);
