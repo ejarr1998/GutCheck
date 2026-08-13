@@ -502,6 +502,66 @@ exports.onThreadMessage = onDocumentCreated("threads/{pair}/messages/{messageId}
   });
 });
 
+/* ---------- parseExercisesCall: turn pasted notes into structured exercise cards ---------- */
+exports.parseExercisesCall = onCall({ secrets: [ANTHROPIC_API_KEY] }, async (request) => {
+  await guard(request);
+  const { text, existingTags } = request.data || {};
+  if (typeof text !== "string" || !text.trim() || text.length > 8000) {
+    throw new HttpsError("invalid-argument", "Missing or oversized text.");
+  }
+  const tagList = Array.isArray(existingTags) ? existingTags.slice(0, 40) : [];
+
+  const tools = [{
+    name: "extracted_exercises",
+    description: "Return the structured list of real exercises/stretches found in the client's pasted text.",
+    input_schema: {
+      type: "object",
+      properties: {
+        exercises: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Short, clean exercise name YOU write, e.g. \"Kneeling hip flexor stretch\" — never the source text verbatim." },
+              targets: {
+                type: "array", items: { type: "string" },
+                description: "What this targets (e.g. [\"Hip Flexors\"]). Prefer matching one of the client's existing tags exactly when it fits; only introduce a new tag if none of the existing ones apply.",
+              },
+              detail: { type: "string", description: "Clean how-to instructions in your own words, 1-3 sentences. Strip citation markers like [^20^], filler, and anything not directly about how to perform the movement." },
+              seconds: { type: "number", description: "A reasonable default hold/work time per rep in seconds (use 30 if the source doesn't specify a time and it's not clearly a 0-duration reminder)." },
+              sets: { type: "number", description: "Number of sets, default 1 if unspecified." },
+              perSide: { type: "boolean", description: "True if the exercise is done per side (left/right)." },
+            },
+            required: ["name", "targets", "detail", "seconds", "sets", "perSide"],
+          },
+        },
+      },
+      required: ["exercises"],
+    },
+  }];
+
+  const body = {
+    model: CLAUDE_MODEL,
+    max_tokens: 2000,
+    system:
+      "You extract structured exercise/stretch data from raw pasted text — personal notes, an article, a doctor's or trainer's instructions, anything. " +
+      "Identify every DISTINCT real exercise or stretch mentioned, each with an actual technique to perform. Skip general advice, reminders, or things to avoid that aren't a specific exercise (e.g. \"don't slouch\" or \"avoid long sitting\" are not exercises — only include things the client would actually add as a card to do). " +
+      "For each one, write your own short clean name and your own clean instructions — never paste the source's raw wording, and strip citation markers, filler, and restated stats that aren't instructional. " +
+      (tagList.length ? "The client's existing target tags are: " + tagList.join(", ") + ". Prefer reusing these exactly when they fit; only add a new tag if genuinely nothing existing applies. " : "") +
+      "Always call the extracted_exercises tool with the full list, even if there's only one exercise. If the text has no real exercises in it, call it with an empty list.",
+    messages: [{ role: "user", content: text }],
+    tools,
+    tool_choice: { type: "tool", name: "extracted_exercises" },
+  };
+
+  const data = await callAnthropic(ANTHROPIC_API_KEY.value(), body);
+  const block = (data.content || []).find((b) => b.type === "tool_use" && b.name === "extracted_exercises");
+  if (!block) throw new HttpsError("unavailable", "Couldn't extract any exercises from that text — try rephrasing or adding more detail.");
+  const exercises = Array.isArray(block.input.exercises) ? block.input.exercises.slice(0, 30) : [];
+  return { exercises };
+});
+
+
 exports.avatarCall = onCall({ secrets: [XAI_API_KEY] }, async (request) => {
   await guard(request);
   const { prompt } = request.data || {};

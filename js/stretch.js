@@ -31,6 +31,7 @@ const stretchState = {
   editingRoutineId: null,
   editingExerciseId: null, // set while #exerciseEditSheet is open for an existing exercise
   editTags: [], // tags currently selected in the edit sheet
+  importResults: [], // last smart-import parse, before the person picks which to keep
   session: null, // { steps: [...], index: 0, returnTo: "hub"|"routines" }
   timer: { running: false, remaining: 0, total: 0, handle: null },
 };
@@ -210,6 +211,11 @@ function renderLibraryTab() {
   addBtn.type = "button";
   addBtn.addEventListener("click", () => openExerciseEdit(null));
   body.appendChild(addBtn);
+
+  const importBtn = el("button", "btn ghost big", "✨ Smart import");
+  importBtn.type = "button";
+  importBtn.addEventListener("click", () => window.openSmartImport());
+  body.appendChild(importBtn);
 }
 
 function exerciseCard(ex) {
@@ -340,6 +346,111 @@ async function deleteExerciseEdit() {
     renderStretchTab();
     toast("Deleted");
   } catch (e) { toast("Couldn't delete: " + e.message, true); }
+}
+
+/* ---------- smart import: paste notes, AI extracts structured cards ---------- */
+
+function openSmartImport() {
+  $("#importText").value = "";
+  $("#importReviewList").innerHTML = "";
+  $("#importStep1").hidden = false;
+  $("#importStep2").hidden = true;
+  $("#importParseBtn").disabled = false;
+  $("#importParseBtn").textContent = "✨ Parse";
+  stretchState.importResults = [];
+  $("#smartImportSheet").hidden = false;
+}
+
+function closeSmartImport() {
+  if (window.__navPop) window.__navPop("smartImport");
+  $("#smartImportSheet").hidden = true;
+}
+
+async function runSmartImport() {
+  const text = $("#importText").value.trim();
+  if (!text) { toast("Paste something first", true); return; }
+  const btn = $("#importParseBtn");
+  btn.disabled = true;
+  btn.textContent = "Reading…";
+  try {
+    const res = await fns.httpsCallable("parseExercisesCall")({ text, existingTags: stretchState.targetTags });
+    const exercises = (res.data && res.data.exercises) || [];
+    if (!exercises.length) { toast("Couldn't find any exercises in that text", true); return; }
+    stretchState.importResults = exercises.map((e) => ({ ...e, keep: true }));
+    renderImportReview();
+    $("#importStep1").hidden = true;
+    $("#importStep2").hidden = false;
+  } catch (e) {
+    toast("Couldn't parse that: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✨ Parse";
+  }
+}
+
+function renderImportReview() {
+  const list = $("#importReviewList");
+  list.innerHTML = "";
+  stretchState.importResults.forEach((ex, i) => {
+    const card = el("div", "exercise-card import-review-card");
+    const top = el("div", "exercise-card-top");
+    const check = el("button", "exercise-check" + (ex.keep ? " on" : ""), ex.keep ? "✓" : "");
+    check.type = "button";
+    check.addEventListener("click", () => { ex.keep = !ex.keep; renderImportReview(); });
+    top.appendChild(check);
+    const textBox = el("div", "exercise-card-text");
+    textBox.appendChild(el("div", "exercise-name", ex.name));
+    if (ex.detail) textBox.appendChild(el("div", "exercise-detail", ex.detail));
+    const metaRow = el("div", "exercise-meta-row");
+    (ex.targets || []).forEach((t) => metaRow.appendChild(el("span", "exercise-target-badge", t)));
+    if (ex.seconds) {
+      const badge = ex.perSide ? ex.seconds + "s/side" : ex.sets > 1 ? ex.sets + " × " + ex.seconds + "s" : ex.seconds + "s";
+      metaRow.appendChild(el("span", "exercise-badge", badge));
+    }
+    if (metaRow.childNodes.length) textBox.appendChild(metaRow);
+    top.appendChild(textBox);
+    card.appendChild(top);
+    list.appendChild(card);
+  });
+  $("#importSaveBtn").textContent = "Add " + stretchState.importResults.filter((e) => e.keep).length + " exercise" +
+    (stretchState.importResults.filter((e) => e.keep).length === 1 ? "" : "s");
+}
+
+async function saveImportedExercises() {
+  const toSave = stretchState.importResults.filter((e) => e.keep);
+  if (!toSave.length) { toast("Nothing selected", true); return; }
+  const btn = $("#importSaveBtn");
+  btn.disabled = true;
+  try {
+    const newTags = [];
+    const batch = db.batch();
+    toSave.forEach((ex) => {
+      const entry = {
+        name: ex.name,
+        targets: Array.isArray(ex.targets) ? ex.targets : [],
+        detail: ex.detail || "",
+        seconds: Math.max(0, Number(ex.seconds) || 0),
+        sets: Math.max(1, Number(ex.sets) || 1),
+        perSide: !!ex.perSide,
+      };
+      entry.targets.forEach((t) => { if (!stretchState.targetTags.includes(t)) newTags.push(t); });
+      const ref = db.collection(ucol("exercises")).doc();
+      batch.set(ref, entry);
+      stretchState.exercises.push({ id: ref.id, ...entry });
+    });
+    await batch.commit();
+    if (newTags.length) {
+      stretchState.targetTags = Array.from(new Set([...stretchState.targetTags, ...newTags]));
+      await saveTargetTags();
+    }
+    closeSmartImport();
+    renderStretchTab();
+    toast(toSave.length + " exercise" + (toSave.length === 1 ? "" : "s") + " added");
+  } catch (e) {
+    toast("Couldn't save: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 /* ---------- Routines tab ---------- */
@@ -639,6 +750,10 @@ function bindStretchUI() {
     btn.textContent = "Per side: " + (on ? "off" : "on");
     btn.classList.toggle("on", !on);
   });
+
+  $("#importClose").addEventListener("click", closeSmartImport);
+  $("#importParseBtn").addEventListener("click", runSmartImport);
+  $("#importSaveBtn").addEventListener("click", saveImportedExercises);
 }
 
 if (document.readyState === "loading") {
@@ -650,3 +765,5 @@ if (document.readyState === "loading") {
 window.openStretchHub = openStretchHub;
 window.startSession = startSession;
 window.endSession = endSession;
+window.openSmartImport = openSmartImport;
+window.closeSmartImport = closeSmartImport;

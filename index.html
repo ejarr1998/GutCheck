@@ -642,6 +642,24 @@
     </div>
   </div>
 
+  <div class="picker" id="smartImportSheet" hidden>
+    <div class="picker-sheet">
+      <div class="picker-head">
+        <b>✨ Smart import</b>
+        <button class="icon-btn" type="button" id="importClose">✕</button>
+      </div>
+      <div id="importStep1">
+        <p class="timer-hint">Paste notes about one or several stretches/exercises — messy is fine — and I'll turn each into a clean card.</p>
+        <textarea id="importText" rows="8" placeholder="Paste your notes here…"></textarea>
+        <button class="btn big" type="button" id="importParseBtn">✨ Parse</button>
+      </div>
+      <div id="importStep2" hidden>
+        <div id="importReviewList"></div>
+        <button class="btn big" type="button" id="importSaveBtn">Add selected</button>
+      </div>
+    </div>
+  </div>
+
   <div class="stretch-hub" id="stretchHub" hidden></div>
 
   <div class="stretch-player" id="stretchPlayer" hidden>

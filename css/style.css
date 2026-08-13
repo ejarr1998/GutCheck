@@ -1011,6 +1011,12 @@ body.kbd-open #socialConvo .convo-input { bottom: calc(var(--kbd, 0px) + 4px); }
 }
 .exercise-card-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
 .exercise-card-actions .icon-btn { font-size: 15px; padding: 4px; }
+.import-review-card { margin-bottom: 10px; }
+#importText {
+  width: 100%; margin: 4px 0 14px; padding: 11px 13px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--card2); color: var(--text); font-size: 14px; font-family: inherit;
+}
+#importReviewList { max-height: 50vh; overflow-y: auto; margin-bottom: 14px; }
 
 .routine-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);

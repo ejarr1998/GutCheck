@@ -209,6 +209,19 @@
         return r;
       };
     }
+
+    /* -- smart import sheet: back closes it (closeSmartImport pops itself) -- */
+    const origOpenSmartImport = window.openSmartImport;
+    if (typeof origOpenSmartImport === "function") {
+      window.openSmartImport = function () {
+        const r = origOpenSmartImport.apply(this, arguments);
+        pushLayer("smartImport", () => {
+          const s = document.getElementById("smartImportSheet");
+          if (s) s.hidden = true;
+        });
+        return r;
+      };
+    }
   }
 
   // social.js wires its own UI at DOMContentLoaded-ish time too, so bind
