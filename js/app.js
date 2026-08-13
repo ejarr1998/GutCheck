@@ -2039,13 +2039,27 @@ function renderAttachPrev(coachId) {
 /* ---------- keyboard-aware layout (visualViewport) ---------- */
 function wireViewport() {
   if (!window.visualViewport) return;
+  // Cache the "keyboard closed" layout height once, instead of reading
+  // window.innerHeight live on every resize. iOS Safari (especially in
+  // standalone/home-screen PWA mode) doesn't reliably hold innerHeight
+  // constant while the keyboard is open — on some iOS versions it shrinks
+  // right along with visualViewport.height, which makes "innerHeight minus
+  // visualViewport.height" collapse toward 0 and never cross the "keyboard
+  // is open" threshold. That silently breaks every bit of CSS keyed off
+  // --kbd/kbd-open, worst on views that lock body scroll as a fallback
+  // (like the social conversation), since there's nothing left to make the
+  // input visible if the keyboard-open detection itself never fires.
+  let baseHeight = window.innerHeight;
+  const rebase = () => { baseHeight = window.innerHeight; };
+  window.addEventListener("orientationchange", () => setTimeout(rebase, 300));
   const sync = () => {
     const vv = window.visualViewport;
-    const kbd = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    const kbd = Math.max(0, Math.round(baseHeight - vv.height - vv.offsetTop));
     document.documentElement.style.setProperty("--kbd", kbd + "px");
     const open = kbd > 80;
     const was = document.body.classList.contains("kbd-open");
     document.body.classList.toggle("kbd-open", open);
+    if (!open && was) rebase(); // keyboard just closed — safe to recapture the baseline
     if (open && !was && (state.tab === "nutrition" || state.tab === "gym")) {
       scrollChatBottom(state.tab, false);
     }
