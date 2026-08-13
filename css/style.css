@@ -612,7 +612,7 @@ body.kbd-open .tabbar { display: none; }
 /* ---------- desktop ---------- */
 @media (min-width: 760px) {
   main { padding-top: 28px; }
-  #socialConvo { height: calc(100dvh - 152px - var(--kbd, 0px)); }
+  #socialConvo { height: calc(var(--vvh, 100dvh) - 152px); }
   .photo-grid { grid-template-columns: repeat(4, 1fr); }
   .chat-input-bar { bottom: 70px; }
 }
@@ -793,9 +793,9 @@ body.kbd-open .tabbar { display: none; }
 .convo-name { flex: 1; font-weight: 700; font-size: 15px; }
 #socialConvo {
   display: flex; flex-direction: column; position: relative; overflow: hidden;
-  height: calc(100dvh - 144px - var(--kbd, 0px));
+  height: calc(var(--vvh, 100dvh) - 144px);
 }
-body.kbd-open #socialConvo { height: calc(100dvh - 82px - var(--kbd, 0px)); }
+body.kbd-open #socialConvo { height: calc(var(--vvh, 100dvh) - 82px); }
 /* the header floats OVER the message list instead of sitting in flow —
    showing/hiding it must never change the layout height, or the input bar
    (and the whole page behind it) shifts up and down as it toggles */

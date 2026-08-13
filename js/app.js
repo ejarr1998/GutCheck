@@ -2042,33 +2042,35 @@ function renderAttachPrev(coachId) {
 /* ---------- keyboard-aware layout (visualViewport) ---------- */
 function wireViewport() {
   if (!window.visualViewport) return;
-  // Cache the "keyboard closed" layout height once, instead of reading
-  // window.innerHeight live on every resize. iOS Safari (especially in
-  // standalone/home-screen PWA mode) doesn't reliably hold innerHeight
-  // constant while the keyboard is open — on some iOS versions it shrinks
-  // right along with visualViewport.height, which makes "innerHeight minus
-  // visualViewport.height" collapse toward 0 and never cross the "keyboard
-  // is open" threshold. That silently breaks every bit of CSS keyed off
-  // --kbd/kbd-open, worst on views that lock body scroll as a fallback
-  // (like the social conversation), since there's nothing left to make the
-  // input visible if the keyboard-open detection itself never fires.
-  let baseHeight = window.innerHeight;
-  const rebase = () => { baseHeight = window.innerHeight; };
-  window.addEventListener("orientationchange", () => setTimeout(rebase, 300));
+  // Two separate concerns, kept separate on purpose:
+  //  --vvh: the TRUE current visible height. Views that need to fit exactly
+  //    within what's actually on screen (like the social conversation) size
+  //    off this directly — it already reflects the keyboard, Safari's
+  //    auto-hiding toolbar, rotation, anything, with no guesswork.
+  //  --kbd / body.kbd-open: an approximate "is a keyboard probably open"
+  //    signal, still useful for the sticky chat input bar's bottom offset.
+  // Earlier this diffed visualViewport.height against a cached "keyboard
+  // closed" baseline of window.innerHeight — but iOS Safari's toolbar
+  // show/hide (independent of the keyboard, triggered by normal scrolling)
+  // also changes innerHeight, which could desync that baseline and make
+  // --kbd wrong (and the conversation's height calc wrong along with it)
+  // even with no keyboard involved at all. Reading visualViewport.height
+  // directly every time sidesteps that entirely — nothing to go stale.
   const sync = () => {
     const vv = window.visualViewport;
-    const kbd = Math.max(0, Math.round(baseHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty("--vvh", vv.height + "px");
+    const kbd = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
     document.documentElement.style.setProperty("--kbd", kbd + "px");
     const open = kbd > 80;
     const was = document.body.classList.contains("kbd-open");
     document.body.classList.toggle("kbd-open", open);
-    if (!open && was) rebase(); // keyboard just closed — safe to recapture the baseline
     if (open && !was && (state.tab === "nutrition" || state.tab === "gym")) {
       scrollChatBottom(state.tab, false);
     }
   };
   window.visualViewport.addEventListener("resize", sync);
   window.visualViewport.addEventListener("scroll", sync);
+  sync(); // set --vvh/--kbd immediately instead of waiting for the first event
 }
 
 /* ---------- workout log: simple big-picture tagging (no timers/sets/GPS) ---------- */
