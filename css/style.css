@@ -612,9 +612,9 @@ body.kbd-open .tabbar { display: none; }
 /* ---------- desktop ---------- */
 @media (min-width: 760px) {
   main { padding-top: 28px; }
-  #socialConvo { height: calc(var(--vvh, 100dvh) - 152px); }
   .photo-grid { grid-template-columns: repeat(4, 1fr); }
   .chat-input-bar { bottom: 70px; }
+  #socialConvo .convo-input { bottom: 70px; }
 }
 
 /* ==================== SOCIAL ==================== */
@@ -791,35 +791,28 @@ body.kbd-open .tabbar { display: none; }
 
 /* conversation */
 .convo-name { flex: 1; font-weight: 700; font-size: 15px; }
-#socialConvo {
-  display: flex; flex-direction: column; position: relative; overflow: hidden;
-  height: calc(var(--vvh, 100dvh) - 144px);
-}
-body.kbd-open #socialConvo { height: calc(var(--vvh, 100dvh) - 82px); }
-/* the header floats OVER the message list instead of sitting in flow —
-   showing/hiding it must never change the layout height, or the input bar
-   (and the whole page behind it) shifts up and down as it toggles */
+/* Reverted from a bounded-height, body-scroll-locked container back to
+   normal page flow (same pattern as the coach chats, which have never had
+   this problem): iOS Safari can straight-up refuse to bring up the on-
+   screen keyboard for a focused input inside a body { overflow: hidden }
+   + fixed-height layout — not just mis-size it, actually never open it at
+   all. That's a well-known category of iOS bug with locked/fixed layouts,
+   and matches "the keyboard just isn't there" exactly. The coach chat's
+   input never hits this because it's sticky-positioned in a normally-
+   scrolling page, not inside a scroll-locked box — so the conversation view
+   now works the same way. Traded away the fancy auto-hiding header for this
+   (dropped below) since it was built assuming the bounded-box layout; can
+   revisit that polish once the core "can I type at all" bug is confirmed
+   fixed on a real device. */
+#socialConvo { display: flex; flex-direction: column; position: relative; }
 .convo-head {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+  position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 10px;
   padding: 4px 0 10px; background: var(--bg);
 }
 .convo-scroll {
-  flex: 1; min-height: 0; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 6px; padding: 52px 2px 10px;
+  display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 10px;
 }
-/* the convo is a bounded flex column — kill the page-level scroll range
-   behind it so there's exactly one scrollbar (the message list) and the
-   input bar can never drift */
-/* NOTE: must also require the Social panel itself to be visible — the convo
-   div keeps hidden=false inside the hidden panel after you switch tabs,
-   which would otherwise lock body scroll on EVERY screen */
-main:has(#panel-social:not([hidden]) #socialConvo:not([hidden])) { padding-bottom: 0; }
-body:has(#panel-social:not([hidden]) #socialConvo:not([hidden])) { overflow: hidden; }
-
-/* auto-hiding header: slides away scrolling down, back the instant you scroll up */
-.convo-head { transition: transform .2s ease, opacity .18s ease; }
-#socialConvo.head-hidden .convo-head { transform: translateY(-110%); opacity: 0; pointer-events: none; }
 .convo-day {
   text-align: center; font-size: 11px; color: var(--muted); font-weight: 700;
   margin: 10px 0 4px;
@@ -871,9 +864,11 @@ body:has(#panel-social:not([hidden]) #socialConvo:not([hidden])) { overflow: hid
 .nudge-time { font-size: 10px; color: var(--muted); margin-top: 2px; }
 .convo-input { display: flex; gap: 8px; margin-top: 10px; }
 #socialConvo .convo-input {
+  position: sticky; bottom: 64px;
   background: rgba(12,14,9,.95); backdrop-filter: blur(8px);
   padding: 10px 0 6px; border-top: 1px solid var(--border); margin-top: 0;
 }
+body.kbd-open #socialConvo .convo-input { bottom: calc(var(--kbd, 0px) + 4px); }
 .convo-input input {
   flex: 1; background: var(--card2); border: 1px solid var(--border); color: var(--text);
   border-radius: 999px; padding: 10px 16px; font: inherit; font-size: 14px;
