@@ -260,21 +260,26 @@ function exerciseCard(ex) {
 /* ---------- exercise add/edit sheet ---------- */
 
 function openExerciseEdit(exerciseId) {
-  const ex = exerciseId ? exerciseById(exerciseId) : null;
-  stretchState.editingExerciseId = exerciseId || null;
-  stretchState.editTags = ex ? (ex.targets || []).slice() : [];
-  $("#exerciseEditTitle").textContent = ex ? "Edit exercise" : "Add exercise";
-  $("#exEditName").value = ex ? ex.name : "";
-  $("#exEditDetail").value = ex ? ex.detail || "" : "";
-  $("#exEditSeconds").value = ex ? ex.seconds || 30 : 30;
-  $("#exEditSets").value = ex ? ex.sets || 1 : 1;
-  const perSideBtn = $("#exEditPerSide");
-  perSideBtn.dataset.on = ex && ex.perSide ? "1" : "0";
-  perSideBtn.textContent = "Per side: " + (perSideBtn.dataset.on === "1" ? "on" : "off");
-  perSideBtn.classList.toggle("on", perSideBtn.dataset.on === "1");
-  $("#exEditDelete").hidden = !ex;
-  renderExerciseEditTags();
-  $("#exerciseEditSheet").hidden = false;
+  try {
+    const ex = exerciseId ? exerciseById(exerciseId) : null;
+    stretchState.editingExerciseId = exerciseId || null;
+    stretchState.editTags = ex ? (ex.targets || []).slice() : [];
+    $("#exerciseEditTitle").textContent = ex ? "Edit exercise" : "Add exercise";
+    $("#exEditName").value = ex ? ex.name : "";
+    $("#exEditDetail").value = ex ? ex.detail || "" : "";
+    $("#exEditSeconds").value = ex ? ex.seconds || 30 : 30;
+    $("#exEditSets").value = ex ? ex.sets || 1 : 1;
+    const perSideBtn = $("#exEditPerSide");
+    perSideBtn.dataset.on = ex && ex.perSide ? "1" : "0";
+    perSideBtn.textContent = "Per side: " + (perSideBtn.dataset.on === "1" ? "on" : "off");
+    perSideBtn.classList.toggle("on", perSideBtn.dataset.on === "1");
+    $("#exEditDelete").hidden = !ex;
+    renderExerciseEditTags();
+    $("#exerciseEditSheet").hidden = false;
+  } catch (e) {
+    console.error("openExerciseEdit failed:", e);
+    toast("Couldn't open the editor: " + e.message, true);
+  }
 }
 
 function closeExerciseEdit() {
@@ -351,14 +356,19 @@ async function deleteExerciseEdit() {
 /* ---------- smart import: paste notes, AI extracts structured cards ---------- */
 
 function openSmartImport() {
-  $("#importText").value = "";
-  $("#importReviewList").innerHTML = "";
-  $("#importStep1").hidden = false;
-  $("#importStep2").hidden = true;
-  $("#importParseBtn").disabled = false;
-  $("#importParseBtn").textContent = "✨ Parse";
-  stretchState.importResults = [];
-  $("#smartImportSheet").hidden = false;
+  try {
+    $("#importText").value = "";
+    $("#importReviewList").innerHTML = "";
+    $("#importStep1").hidden = false;
+    $("#importStep2").hidden = true;
+    $("#importParseBtn").disabled = false;
+    $("#importParseBtn").textContent = "✨ Parse";
+    stretchState.importResults = [];
+    $("#smartImportSheet").hidden = false;
+  } catch (e) {
+    console.error("openSmartImport failed:", e);
+    toast("Couldn't open smart import: " + e.message, true);
+  }
 }
 
 function closeSmartImport() {
