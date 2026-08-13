@@ -1397,6 +1397,8 @@ function renderChat(coachId) {
         const deleted = m.action.type === "deleted";
         const label = (deleted ? "🗑️ Removed: " : "✅ Logged: ") + m.action.summary + " — see Today's fuel on Home";
         wrap.appendChild(el("div", "action-note" + (deleted ? " deleted" : ""), label));
+      } else if (m.unverifiedClaim) {
+        wrap.appendChild(el("div", "action-note unverified", "⚠️ This reply mentions logging/removing something, but no log action actually happened — check Today's fuel to be sure."));
       }
     } else {
       wrap.appendChild(div);
@@ -1510,7 +1512,7 @@ function coachSystemParts(coachId) {
         "ALWAYS write your own short, clean name for the description field — just the food items themselves (e.g. \"Eggs, cheese, toast, butter\"), roughly 3-8 words. Strip out everything else: the client's own phrasing, restated calories/macros, brand names, hedging, photo references. Never paste their raw wording or a long/rambling description into it, no matter how detailed their message was. " +
         "Exception: for sodas and soft drinks, keep the actual drink name instead of genericizing it (e.g. \"Dr Pepper\", not \"Soda\" or \"Soft drink\") — that detail matters here. " +
         "If the meal is too vague to estimate (no portions, no idea what it is), ask ONE short clarifying question instead of logging. " +
-        "Never claim you logged something without calling the tool. " +
+        "Never claim you logged something without calling the tool. Discussing or estimating a food's calories earlier in the conversation is NOT the same as logging it — if the client then asks you to log or track it, or to make sure it's logged, you MUST call log_meal at that point even if you already stated the same numbers before. Every time they ask you to log something is a fresh request for a fresh tool call, never something you can fulfill by just repeating numbers from earlier. " +
         "\n- MEAL DELETION: you also have a delete_meal tool. Use it ONLY when the client clearly asks to remove, delete, or undo a specific entry from today's log — never on your own initiative, and never if you're not sure which entry they mean (ask them to clarify instead of guessing). " +
         "When they do ask, you MUST actually call the tool — never claim a technical issue, say you \"hit a snag,\" or apologize for a problem without having genuinely attempted the tool call first. " +
         "Match what they describe against the LOGGED SO FAR TODAY list and pass that entry's exact meal_id (shown in parentheses next to it) — never invent an id or use the food name as the id. " +
@@ -2516,8 +2518,19 @@ async function sendCoachMessage(coachId, text) {
   } catch (e) {
     reply = "Hmm, my brain hiccuped: " + e.message + ". Check the API key in Settings and try again.";
   }
+  // Safety net against a hallucinated "I logged/deleted that" — if the reply
+  // *says* it did something to the log but no log_meal/delete_meal actually
+  // fired this turn (no receipt chip to show), flag it so the person isn't
+  // trusting a claim with nothing behind it. Prompt rules already say never
+  // to claim this without calling the tool, but that's probabilistic; this
+  // check is a hard, deterministic backstop based on what the server
+  // actually reports happened, not what the text says happened.
+  const claimsLogAction = !replyAction && coachId === "nutrition" && /\b(logged|log(?:ging)? it|added (?:it|that) to your (?:tracker|log)|removed (?:it|that) from your (?:tracker|log))\b/i.test(reply || "");
+  const extra = {};
+  if (replyAction) extra.action = replyAction;
+  if (claimsLogAction) extra.unverifiedClaim = true;
   try {
-    await addChatMsg(coachId, "assistant", reply, null, replyAction ? { action: replyAction } : null);
+    await addChatMsg(coachId, "assistant", reply, null, Object.keys(extra).length ? extra : null);
   } catch (e) {
     console.warn("reply save failed:", e);
     state.chats[coachId].push({ id: "local-" + Date.now(), role: "assistant", content: reply, at: new Date().toISOString() });
