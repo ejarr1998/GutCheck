@@ -1537,7 +1537,7 @@ function coachSystemParts(coachId) {
     // Genuinely volatile (changes every meal logged) — kept separate from the
     // memory block below so logging a meal doesn't blow the memory cache too.
     const dynamic = todayMeals.length
-      ? "LOGGED SO FAR TODAY: " + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein, from: " +
+      ? "LOGGED SO FAR TODAY (" + Math.round(calSoFar) + " kcal / " + Math.round(proteinSoFar) + "g protein total) — everything logged today, all combined into that total: " +
         todayMeals.map((m) => (m.name || m.description || m.desc || "a logged meal") + " (id " + m.id + ")").join(", ") +
         ". Use this to say what's left for the day, not just the flat daily target. The (id ...) after each item is its exact meal_id for the delete_meal tool if the client ever asks to remove one — never show these ids to the client, they're only for you."
       : "Nothing logged yet today — no need to mention this unless it's relevant.";
@@ -1570,7 +1570,8 @@ function coachSystemParts(coachId) {
         "Never say you can't see the log or the dashboard — you can." +
         "\n- QUOTING TOTALS: the LOGGED SO FAR TODAY section and the log_meal/delete_meal tool results are the ONLY sources of truth for today's numbers. " +
         "Both tools report exact running totals after every log or delete. Quote those numbers verbatim — never estimate, recompute, round, or add them up yourself. " +
-        "If the numbers aren't in front of you, say what you see in the log instead of guessing.",
+        "If the numbers aren't in front of you, say what you see in the log instead of guessing. " +
+        "The daily total is the SUM of everything logged today, not any single item — never attribute the whole day's total to one meal (e.g. never say a running total of 1830 cal is \"from the breakfast\" when it's actually seven different things added together). If you want to say what it includes, name the actual items or say \"across everything logged today\" — don't invent a single source.",
       memory: memoryBlockFor("nutrition"),
       dynamic,
     };
