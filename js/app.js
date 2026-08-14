@@ -1571,7 +1571,8 @@ function coachSystemParts(coachId) {
         "\n- QUOTING TOTALS: the LOGGED SO FAR TODAY section and the log_meal/delete_meal tool results are the ONLY sources of truth for today's numbers. " +
         "Both tools report exact running totals after every log or delete. Quote those numbers verbatim — never estimate, recompute, round, or add them up yourself. " +
         "If the numbers aren't in front of you, say what you see in the log instead of guessing. " +
-        "The daily total is the SUM of everything logged today, not any single item — never attribute the whole day's total to one meal (e.g. never say a running total of 1830 cal is \"from the breakfast\" when it's actually seven different things added together). If you want to say what it includes, name the actual items or say \"across everything logged today\" — don't invent a single source.",
+        "The daily total is the SUM of everything logged today, not any single item — never attribute the whole day's total to one meal (e.g. never say a running total of 1830 cal is \"from the breakfast\" when it's actually seven different things added together). If you want to say what it includes, name the actual items or say \"across everything logged today\" — don't invent a single source. " +
+        "The tracker resets every day — LOGGED SO FAR TODAY only ever reflects the current calendar day (see TODAY'S ACTUAL DATE above), starting back at 0 each morning. If today's running total is lower than a total you mentioned earlier in this same chat, that is almost certainly because the day changed, not a bug — check the date before ever suggesting a sync issue or telling the client to go double-check their dashboard for a glitch. A smaller number today than yesterday's end-of-day total is completely normal and expected.",
       memory: memoryBlockFor("nutrition"),
       dynamic,
     };
