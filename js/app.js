@@ -26,6 +26,57 @@ try {
   console.error("Firebase init failed:", e);
 }
 
+/* ---------- Firebase Functions SDK / FCM bug workaround ----------
+   When notification permission is granted, the functions client SDK tries to
+   attach an FCM "Instance-ID" token to EVERY callable request (coachCall,
+   voiceCall, avatarCall...). It calls messaging.getToken() with NO service
+   worker registration, so FCM tries to register its DEFAULT messaging worker
+   at <origin>/firebase-messaging-sw.js — a file that cannot exist on a GitHub
+   Pages *project* site (our root is /GutCheck/). The registration 404s, and
+   because the SDK's try/catch never awaits the promise, the rejection escapes
+   and fails the entire callable — surfacing as the coach's
+   "brain hiccuped: Messaging: We are unable to register the default service
+   worker" error for every push-enabled user (this is why it hit Rae's phone
+   constantly and desktops never).
+
+   Two layered guards, both best-effort:
+   1) Rewrite any firebase-messaging-sw.js registration to our real sw.js.
+   2) Override the messaging-internal getToken the functions SDK uses so it
+      goes through our registration + VAPID key like initPush() does. */
+if ("serviceWorker" in navigator) {
+  try {
+    const origSwRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+    navigator.serviceWorker.register = function (scriptURL, options) {
+      if (String(scriptURL).indexOf("firebase-messaging-sw.js") !== -1) {
+        return origSwRegister("sw.js", Object.assign({}, options, { scope: "./" }));
+      }
+      return origSwRegister(scriptURL, options);
+    };
+  } catch (e) { /* non-fatal */ }
+}
+function patchFunctionsFcmToken() {
+  try {
+    const app = firebase.app();
+    const delegate = app._delegate || app;
+    if (!delegate._getProvider) return;
+    const provider = delegate._getProvider("messaging-internal");
+    const inst = provider.getImmediate({ optional: true }) || provider.get();
+    if (!inst || inst.__gcPatched) return;
+    inst.getToken = function () {
+      try {
+        if (window.fcmMessaging && window.pushSwReg && window.FCM_VAPID_KEY) {
+          return window.fcmMessaging
+            .getToken({ vapidKey: window.FCM_VAPID_KEY, serviceWorkerRegistration: window.pushSwReg })
+            .catch(() => undefined);
+        }
+      } catch (e) { /* fall through */ }
+      return Promise.resolve(undefined); // omit the header — server doesn't need it
+    };
+    inst.__gcPatched = true;
+  } catch (e) { /* non-fatal — guard 1 above still applies */ }
+}
+patchFunctionsFcmToken();
+
 /* ---------- tiny DOM helpers (XSS-safe: textContent only) ---------- */
 function $(sel, root) { return (root || document).querySelector(sel); }
 function el(tag, cls, text) {

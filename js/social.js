@@ -1259,6 +1259,11 @@ async function initPush() {
     if (!supported) return;
     fcmMessaging = firebase.messaging();
     pushSwReg = await navigator.serviceWorker.ready;
+    // expose for the functions-SDK FCM workaround in app.js (top-level
+    // let/const here aren't visible as window.* properties)
+    window.fcmMessaging = fcmMessaging;
+    window.pushSwReg = pushSwReg;
+    window.FCM_VAPID_KEY = FCM_VAPID_KEY;
     // foreground messages are redundant with the Firestore banner — swallow them
     fcmMessaging.onMessage(() => {});
     if (localStorage.getItem("gutcheckPushEnabled") === "1" && Notification.permission === "granted") {
